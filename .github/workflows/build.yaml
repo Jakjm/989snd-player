@@ -1,0 +1,119 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (Clang)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang cmake ninja-build pkg-config \
+            libgl1-mesa-dev \
+            libx11-dev libxext-dev libxrandr-dev \
+            libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            libasound2-dev libpulse-dev libdbus-1-dev libudev-dev
+      - uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          variant: sccache
+          key: linux-clang-ubuntu-22.04-${{ github.sha }}
+          restore-keys: linux-clang-ubuntu-22.04-
+          max-size: 1000M
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+      - name: Build
+        run: cmake --build build --target sndplayer --parallel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sndplayer-linux
+          path: build/sndplayer
+
+  macos:
+    name: macOS (Clang)
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: brew install ninja
+      - uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          variant: sccache
+          key: macos-14-${{ github.sha }}
+          restore-keys: macos-14-
+          max-size: 1000M
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+      - name: Build
+        run: cmake --build build --target sndplayer --parallel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sndplayer-macos
+          path: build/sndplayer
+  windows:
+    name: Windows (Clang)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          variant: sccache
+          key: windows-clang-2022-${{ github.sha }}
+          restore-keys: windows-clang-2022-
+          max-size: 1000M
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+      - name: Build
+        run: cmake --build build --target sndplayer --parallel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sndplayer-windows
+          path: build/sndplayer.exe
+  android:
+    name: Android (APK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Install NDK, SDK platform and CMake
+        run: sdkmanager "platforms;android-35" "ndk;30.0.15729638" "cmake;3.22.1"
+      - name: Build Debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+      # - name: Build Release APK
+      #   working-directory: android
+      #   run: |
+      #     chmod +x gradlew
+      #     ./gradlew assembleRelease --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sndplayer-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+      # - uses: actions/upload-artifact@v4
+      #   with:
+      #     name: sndplayer-android-release-unsigned
+      #     path: android/app/build/outputs/apk/release/app-release-unsigned.apk
