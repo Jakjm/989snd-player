@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "common/common_types.h"
-
+#include "midi_timeline.h"
 #include "sound/989snd/player.h"
 
 namespace snd {
@@ -95,6 +95,8 @@ class SndPlayer {
   bool m_browse_show_all = false;
   std::string m_last_error;
   bool m_should_quit = false;
+  bool m_viewing_registers = true;
+  MidiTimelineParams m_midi_timeline_params;
 
   void open_file_dialog();
   void enumerate_sounds(LoadedBank& bank);

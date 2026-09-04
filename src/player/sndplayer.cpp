@@ -20,7 +20,6 @@
 #include "sound/989snd/ame_handler.h"
 #include "sound/989snd/musicbank.h"
 #include "sound/989snd/sfxblock.h"
-
 #include "fmt/format.h"
 #include "third-party/imgui/imgui.h"
 #include "third-party/imgui/imgui_internal.h"
@@ -664,7 +663,9 @@ void SndPlayer::draw_banks_panel() {
   }
 
   if (m_banks.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
     ImGui::TextDisabled("No banks loaded.\nOpen or drag a .MUS/.SBK file to begin.");
+    ImGui::PopTextWrapPos();
   }
 
   if (!m_last_error.empty()) {
@@ -919,64 +920,71 @@ void SndPlayer::draw_active_panel() {
           m_selected_active--;
         }
       }
-
+      ImGui::Separator();
+      
       if (m_selected_active >= 0 && m_selected_active < static_cast<int>(m_active.size())) {
         auto& a = m_active[m_selected_active];
 
         const flava::FlavaSet* flavas = a.is_music ? flava::lookup(a.bank_name) : nullptr;
         if (flavas) {
           const int reg = flavas->reg;
-          ImGui::SeparatorText(fmt::format("Flavas - {}", a.label).c_str());
-
-          if (flavas->battle_mode) {
-            const bool battle = a.registers[JAK2_BATTLE_REGISTER] != 0;
-            if (ImGui::Selectable("battle mode", battle)) {
-              const int nv = battle ? 0 : 1;
-              a.registers[JAK2_BATTLE_REGISTER] = nv;
-              m_player.SetSoundReg(a.handle, static_cast<u8>(JAK2_BATTLE_REGISTER),
-                                   static_cast<u8>(nv));
+          if (ImGui::CollapsingHeader(fmt::format("Flavas - {}", a.label).c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (flavas->battle_mode) {
+              const bool battle = a.registers[JAK2_BATTLE_REGISTER] != 0;
+              if (ImGui::Selectable("battle mode", battle)) {
+                const int nv = battle ? 0 : 1;
+                a.registers[JAK2_BATTLE_REGISTER] = nv;
+                m_player.SetSoundReg(a.handle, static_cast<u8>(JAK2_BATTLE_REGISTER),
+                                     static_cast<u8>(nv));
+              }
             }
-          }
-
-          for (const auto& v : flavas->variants) {
-            const bool sel = a.registers[reg] == v.value;
-            std::string item = fmt::format("{}  ({})", v.name, v.value);
-            if (ImGui::Selectable(item.c_str(), sel)) {
-              a.registers[reg] = v.value;
-              m_player.SetSoundReg(a.handle, static_cast<u8>(reg), static_cast<u8>(v.value));
+  
+            for (const auto& v : flavas->variants) {
+              const bool sel = a.registers[reg] == v.value;
+              std::string item = fmt::format("{}  ({})", v.name, v.value);
+              if (ImGui::Selectable(item.c_str(), sel)) {
+                a.registers[reg] = v.value;
+                m_player.SetSoundReg(a.handle, static_cast<u8>(reg), static_cast<u8>(v.value));
+              }
             }
+            ImGui::Spacing();
           }
-          ImGui::Spacing();
         }
 
         if (a.is_music) {
-          ImGui::SeparatorText(fmt::format("AME registers - {}", a.label).c_str());
-          ImGui::PushStyleColor(ImGuiCol_FrameBg, tracker::rgb(0x0A, 0x14, 0x26));
-          ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, tracker::rgb(0x12, 0x20, 0x38));
-          ImGui::PushStyleColor(ImGuiCol_FrameBgActive, tracker::rgb(0x1A, 0x2C, 0x4C));
-          ImGui::PushStyleColor(ImGuiCol_Text, tracker::SCOPE);
-          for (int r = 0; r < 16; r++) {
-            std::string label = fmt::format("reg {}", r);
-            bool changed = ImGui::DragInt(label.c_str(), &a.registers[r], 0.25f, 0, 255, "%d",
-                                          ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
-            if (ImGui::IsItemHovered()) {
-              float wheel = ImGui::GetIO().MouseWheel;
-              if (wheel != 0.0f) {
-                a.registers[r] =
-                    std::clamp(a.registers[r] + static_cast<int>(wheel), 0, 255);
-                changed = true;
+          if (ImGui::CollapsingHeader("AME registers", ImGuiTreeNodeFlags_DefaultOpen))
+          {
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, tracker::rgb(0x0A, 0x14, 0x26));
+            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, tracker::rgb(0x12, 0x20, 0x38));
+            ImGui::PushStyleColor(ImGuiCol_FrameBgActive, tracker::rgb(0x1A, 0x2C, 0x4C));
+            ImGui::PushStyleColor(ImGuiCol_Text, tracker::SCOPE);
+            for (int r = 0; r < 16; r++) {
+              std::string label = fmt::format("reg {}", r);
+              bool changed = ImGui::DragInt(label.c_str(), &a.registers[r], 0.25f, 0, 255, "%d",
+                                            ImGuiSliderFlags_AlwaysClamp);
+              ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
+              if (ImGui::IsItemHovered()) {
+                float wheel = ImGui::GetIO().MouseWheel;
+                if (wheel != 0.0f) {
+                  a.registers[r] =
+                      std::clamp(a.registers[r] + static_cast<int>(wheel), 0, 255);
+                  changed = true;
+                }
+              }
+              if (changed) {
+                m_player.SetSoundReg(a.handle, static_cast<u8>(r), static_cast<u8>(a.registers[r]));
               }
             }
-            if (changed) {
-              m_player.SetSoundReg(a.handle, static_cast<u8>(r), static_cast<u8>(a.registers[r]));
-            }
+            ImGui::PopStyleColor(4);
           }
-          ImGui::PopStyleColor(4);
+
         }
       }
     }
+
+    MidiTimeline(m_midi_timeline_params);
     ImGui::PopStyleColor();
+    
   }
   ImGui::End();
 }

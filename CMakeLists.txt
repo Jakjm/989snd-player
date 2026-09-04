@@ -53,6 +53,7 @@ set(SNDPLAYER_COMMON_SOURCES
 
 add_executable(sndplayer
   src/player/main.cpp
+  src/player/midi_timeline.cpp
   src/player/sndplayer.cpp
   ${SNDPLAYER_ENGINE_SOURCES}
   ${SNDPLAYER_COMMON_SOURCES}
