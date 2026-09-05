@@ -3,7 +3,8 @@
 #include "third-party/imgui/imgui_stdlib.h"
 
 struct MidiTimelineParams{
-    int startFrame = 0;
+    int startFrameTenth = 0;
     float timelineZoom = 1.0;
+    bool beganClickingTimeline = false;
 };
 void MidiTimeline(MidiTimelineParams &params);
