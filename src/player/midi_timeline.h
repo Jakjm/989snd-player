@@ -3,6 +3,8 @@
 #include "third-party/imgui/imgui_stdlib.h"
 #include <vector>
 #include <map>
+#include "sound/989snd/midi_handler.h"
+#include "sound/989snd/musicbank.h"
 struct SoundInstance{
     int frameStart = 0;
     int frameEnd = 0;
@@ -12,6 +14,8 @@ struct SoundInstance{
 
     }
 };
+
+std::vector<SoundInstance> readMidiData(snd::MusicBank *bank);
 
 struct MidiTimelineParams{
     float timelineZoom = 1.0;

@@ -2,7 +2,6 @@
 
 #include "flava.h"
 #include "tracker_style.h"
-
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -982,6 +981,9 @@ void SndPlayer::draw_active_panel() {
       }
     }
 
+    if(m_midi_timeline_params.sounds.size() == 3 && m_selected_bank != -1){
+      m_midi_timeline_params.sounds = readMidiData((snd::MusicBank*)m_banks[m_selected_bank].bank);
+    }
     MidiTimeline(m_midi_timeline_params);
     ImGui::PopStyleColor();
     

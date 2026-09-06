@@ -4,13 +4,159 @@
 #include "tracker_style.h"
 #include "third-party/imgui/imgui.h"
 #include "third-party/imgui/imgui_internal.h"
+#include "fmt/format.h"
 #include <iterator>
 #include <cstdint>
+#include "sound/989snd/musicbank.h"
 
-const double ZOOM_MAX = 8;
+const double ZOOM_MAX = 8000;
 const double ZOOM_MIN = 1.0 / ZOOM_MAX;
 const int NUM_CHANNELS = 16;
 const double TIMELINE_BOX_HEIGHT = 35.0;
+
+
+static constexpr int tickrate = 240;
+static constexpr int mics_per_tick = 1000000 / tickrate;
+std::vector<SoundInstance> readMidiData(snd::MusicBank *bank){
+    auto &midi = std::get<snd::Midi>(bank->MidiData);
+    u8 *dataStart = midi.DataStart;
+
+    u8 *curData = dataStart;
+    u64 time = 0;
+
+    std::vector<SoundInstance> notes;
+    std::array<int,NUM_CHANNELS> channel_notes;
+    std::array<int,NUM_CHANNELS> channel_programs;
+    for(int i = 0; i < NUM_CHANNELS;++i)
+    {
+        channel_notes[i] = -1;
+        channel_programs[i] = -1;
+    }
+
+    u64 tempo = midi.Tempo;
+    u64 ppt = 100 * mics_per_tick / (tempo / midi.PPQ);
+    u64 tickDelta = 0, tickError = 0, tickCountdown;
+    u8 status_byte;
+    do{
+        auto [len, delta] = snd::MidiHandler::ReadVLQ(curData);
+        curData += len;
+        time += delta;
+
+        tickDelta = 100 * delta + tickError;
+        if (tickDelta < 0 || tickDelta < ppt / 2) {
+            tickError = tickDelta;
+            tickDelta = 0;
+        }
+        if (tickCountdown != 0) {
+            tickCountdown = (tickDelta / 100 * midi.Tempo / midi.PPQ - 1 + mics_per_tick) / mics_per_tick;
+            tickError = tickDelta - ppt * tickCountdown;
+        }
+
+        if(*curData & 0x80)
+        {
+            status_byte = *curData;
+            ++curData;
+        }
+
+        //assert(status_byte & 0x80);
+        int firstMeta = 0;
+        switch(status_byte >> 4){
+            case 0x9:
+            {
+                //NoteON
+                //assert(channel_notes[channel] == nullptr);
+                //break;
+                //NoteOn();
+                //break;
+                u8 channel = status_byte & 0xF;
+                u8 note = *curData;
+                u8 velocity = *(curData + 1);
+                assert(channel < NUM_CHANNELS);
+                //If velocity is non-zero, fall through to note-off
+                if(velocity != 0)
+                {
+                    curData += 2; 
+    
+                    notes.emplace_back(time,-1,note,channel);
+                    channel_notes[channel] = notes.size() - 1;
+                    break;
+                }
+            }   
+            case 0x8:
+            {
+                //NoteOFF
+                //assert(channel_notes[channel] != nullptr);
+                u8 channel = status_byte & 0xF;
+                u8 note = *curData;
+
+                assert(channel < NUM_CHANNELS);
+                notes[channel_notes[channel]].frameEnd = time;
+                curData += 2;
+                break;
+            }
+            case 0xB:
+                curData += 2;
+                break;
+                //ControllerChange();
+                //break;
+            case 0xD:
+                //TODO: actually do stuff
+                ++curData;
+                break;
+                //ChannelPressure();
+                //break;
+            case 0xC:
+            {
+                u8 channel = status_byte & 0xf;
+                u8 program = *curData;
+
+                channel_programs[channel] = program;
+                ++curData;
+                break;
+            }
+            case 0xE:
+                curData += 2;
+                break;
+                //ChannelPitch();
+                //break;
+            case 0xF:
+                // normal meta-event
+                if (status_byte == 0xFF) {//META Event means it's time to repeat or something
+                    // MetaEvent();
+                    // break;
+                    if(firstMeta)
+                        return notes;
+                    else
+                    {
+                        size_t len = *(curData + 1);
+                        if(*curData == 0x2f)
+                            return notes; //Break out before looping
+                        else if(*curData == 0x51)
+                        {
+                            tempo = (curData[2] << 16) | (curData[3] << 8) | (curData[4]);
+                            ppt = 100 * mics_per_tick / (tempo / midi.PPQ);
+                        }
+                        curData += len + 2;
+                        firstMeta = 1;
+                        break;
+                    }
+                }
+                if (status_byte == 0xF0) {//SYSTEM EVENT means AME handler trying to do something
+                    // SystemEvent();
+                    // break;
+                    break;
+                }
+            [[fallthrough]];
+            default:
+            {
+                return notes;
+                // throw MidiError(fmt::format("invalid status {}", status_byte));
+                // return;
+            }
+        }
+    }while(status_byte != 0xF0);
+    return notes;
+}
 
 void MidiTimeline(MidiTimelineParams &params){
     ImGui::PushStyleColor(ImGuiCol_ChildBg, tracker::CREAM);

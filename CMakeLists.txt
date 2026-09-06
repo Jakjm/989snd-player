@@ -83,5 +83,7 @@ if(NOT WIN32)
     -Wno-unused-parameter
     -Wno-unused-private-field
     -Wno-shadow
+    -g
+    -O0
   )
 endif()

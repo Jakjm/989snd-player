@@ -79,12 +79,10 @@ std::pair<size_t, u32> MidiHandler::ReadVLQ(u8* value) {
   u32 out = *value & 0x7f;
   // fmt::print("starting with {:x}\n", *value);
 
-  if ((*value & 0x80) != 0) {
-    while ((*value & 0x80) != 0) {
-      len++;
-      value++;
-      out = (out << 7) + (*value & 0x7f);
-    }
+  while ((*value & 0x80) != 0) {
+    len++;
+    value++;
+    out = (out << 7) + (*value & 0x7f);
   }
 
   return {len, out};

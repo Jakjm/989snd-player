@@ -128,7 +128,7 @@ class MidiHandler : public SoundHandler {
   void MetaEvent();
   void SystemEvent();
   void ChannelPitch();
-
+public:
   static std::pair<size_t, u32> ReadVLQ(u8* value);
 };
 }  // namespace snd
