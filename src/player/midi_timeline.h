@@ -2,6 +2,7 @@
 #include "third-party/imgui/imgui_internal.h"
 #include "third-party/imgui/imgui_stdlib.h"
 #include <vector>
+#include <map>
 struct SoundInstance{
     int frameStart = 0;
     int frameEnd = 0;
@@ -13,15 +14,14 @@ struct SoundInstance{
 };
 
 struct MidiTimelineParams{
-    int startFrameTenth = 0;
     float timelineZoom = 1.0;
-    bool beganClickingTimeline = false;
     std::vector<SoundInstance> sounds = {SoundInstance(10,20,0,1), SoundInstance(5,35,1,0), SoundInstance(30, 40, 0, 1)};
-    SoundInstance *draggedInstance = nullptr;
+    int startFrameTenth = 0;
+    bool beganClickingTimeline = false;
     SoundInstance *stretchedInstanceLeft = nullptr;
     SoundInstance *stretchedInstanceRight = nullptr;
-    int instanceStartBeforeClick = -1;
-    int instanceEndBeforeClick = -1;
+    int timelineStartBeforeClick = -1;
+    std::map<SoundInstance*, std::pair<int,int>> selected;
 };
 void MidiTimeline(MidiTimelineParams &params);
 //void DrawProgInstances(MidiTimelineParams &params);

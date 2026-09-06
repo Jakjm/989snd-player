@@ -27,7 +27,12 @@ void MidiTimeline(MidiTimelineParams &params){
         params.beganClickingTimeline = false;
         params.stretchedInstanceRight = nullptr;
         params.stretchedInstanceLeft = nullptr;
-        params.draggedInstance = nullptr;
+
+        for(auto& iter : params.selected)
+        {
+            iter.second.first = iter.first->frameStart;
+            iter.second.second = iter.first->frameEnd;
+        }
     }
     else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         if(windowPos.x <= mousePos.x && mousePos.x <= windowPos.x + windowSize.x && 
@@ -35,7 +40,7 @@ void MidiTimeline(MidiTimelineParams &params){
             params.beganClickingTimeline = true;
             params.stretchedInstanceRight = nullptr;
             params.stretchedInstanceLeft = nullptr;
-            params.draggedInstance = nullptr;
+            params.timelineStartBeforeClick = params.startFrameTenth;
         }
         else{
             params.beganClickingTimeline = false;
@@ -45,41 +50,39 @@ void MidiTimeline(MidiTimelineParams &params){
     
     if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
     {
-        //printf("Clicking Timeline: %d Dragged Instance %p\n", params.beganClickingTimeline, params.draggedInstance );
-
         ImVec2 dragDelta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
-        ImVec2 mouseDelta = io.MouseDelta;
+        
         if (params.beganClickingTimeline) {
-            //printf("Drag Delta (%f,%f)  (int)(1.0 / params.timelineZoom) %d ", dragDelta.x, dragDelta.y, 
-            // (int)(1.0 / params.timelineZoom));
-            params.startFrameTenth -= (int)ceil((mouseDelta.x / params.timelineZoom));
+            params.startFrameTenth = params.timelineStartBeforeClick - (int)ceil(dragDelta.x / params.timelineZoom);
             if(params.startFrameTenth < 0)
                 params.startFrameTenth = 0;
-            //else{
-                //printf("Not dragging ");
-                //}
         }
-        else if(const auto stretchLeft = params.stretchedInstanceLeft)
+        else if(const auto stretchLeft = params.stretchedInstanceLeft; stretchLeft && params.selected.size() == 1)
         {
-            stretchLeft->frameStart = params.instanceStartBeforeClick + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
+            stretchLeft->frameStart = params.selected[stretchLeft].first + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
             if(stretchLeft->frameStart < 0)
                 stretchLeft->frameStart = 0;
             else if(stretchLeft->frameStart >= stretchLeft->frameEnd - 1)
                 stretchLeft->frameStart = stretchLeft->frameEnd - 1;
         }
-        else if(const auto stretchRight = params.stretchedInstanceRight)
+        else if(const auto stretchRight = params.stretchedInstanceRight; stretchRight && params.selected.size() == 1)
         {
-            stretchRight->frameEnd = params.instanceEndBeforeClick + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
+            stretchRight->frameEnd = params.selected[stretchRight].second + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
             if(stretchRight->frameEnd <= stretchRight->frameStart + 1)
                 stretchRight->frameEnd = stretchRight->frameStart + 1;
         }
-        else if(const auto dragged = params.draggedInstance){
-            dragged->frameStart = params.instanceStartBeforeClick + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
-            dragged->frameEnd = params.instanceEndBeforeClick + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
-            if(dragged->frameStart < 0)
+        else{
+            for(auto selectedIter : params.selected)
             {
-                dragged->frameStart = 0;
-                dragged->frameEnd = (params.instanceEndBeforeClick - params.instanceStartBeforeClick);
+                int frameStartAtClick = selectedIter.second.first;
+                int frameEndAtClick = selectedIter.second.second;
+                selectedIter.first->frameStart = frameStartAtClick + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
+                selectedIter.first->frameEnd = frameEndAtClick + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
+                if(selectedIter.first->frameStart < 0)
+                {
+                    selectedIter.first->frameStart = 0;
+                    selectedIter.first->frameEnd = (frameEndAtClick - frameStartAtClick);
+                }
             }
         }
     }
@@ -94,6 +97,9 @@ void MidiTimeline(MidiTimelineParams &params){
     else if(io.MouseWheel < 0.0 && params.timelineZoom > ZOOM_MIN){
         params.timelineZoom *= 0.95;
     }
+    
+    
+    //Timeline drawing code:
 
     //Draw the timeline
     int curFrameTenth = params.startFrameTenth;
@@ -118,6 +124,7 @@ void MidiTimeline(MidiTimelineParams &params){
 
     //If curFrameTenth is divisible by this, draw the currentFrame line under the line.
     int frameNumberVisibleMultiple = 50 * (int)ceil(1.0 / params.timelineZoom);
+
     while(currentPos.x < windowPos.x + windowSize.x - 2) {
         double lineHeight;
         if(curFrameTenth % frameNumberVisibleMultiple == 0){
@@ -135,9 +142,7 @@ void MidiTimeline(MidiTimelineParams &params){
         curFrameTenth += 10;
     }
 
-    //TODO remove this
-    
-
+    bool clickedButton = false;
     for(SoundInstance &sound: params.sounds){
         if(params.startFrameTenth <= 10 * sound.frameEnd && sound.frameStart <= lastFrame){
             double startX = windowPos.x + 5;
@@ -151,8 +156,8 @@ void MidiTimeline(MidiTimelineParams &params){
             auto start = ImVec2(startX, windowPos.y + 40 + 40 * sound.channel);
             auto end = ImVec2(endX, start.y + 40.0);
 
-            drawlist->AddRectFilled(start, end, 0xFF0000FF, 0.2);
-
+            drawlist->AddRectFilled(start, end, 0xFF0000FF, 0.4);
+            
             //Check if potentially able to stretch or drag instance
             if(start.y <= mousePos.y && mousePos.y <= end.y)
             {
@@ -162,11 +167,19 @@ void MidiTimeline(MidiTimelineParams &params){
                     drawlist->AddTriangleFilled(ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0), ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
                     if(ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                     {
+                        clickedButton = true;
+                        drawlist->AddTriangleFilled(ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0), ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
                         params.stretchedInstanceLeft = &sound;
                         params.stretchedInstanceRight = nullptr;
-                        params.draggedInstance = nullptr;
-                        params.instanceStartBeforeClick = sound.frameStart;
-                        params.instanceEndBeforeClick = sound.frameEnd;
+
+                        if(!params.selected.contains(&sound))
+                        {
+                            if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+                            {
+                                params.selected.clear();
+                            }
+                            params.selected.insert({&sound,{sound.frameStart,sound.frameEnd}});
+                        }
                     }
                 }
                 //Can stretch right
@@ -175,11 +188,18 @@ void MidiTimeline(MidiTimelineParams &params){
                     drawlist->AddTriangleFilled(ImVec2(end.x - 2, start.y + 20.0), ImVec2(end.x - 12.0, start.y + 14.0), ImVec2(end.x - 12.0, start.y + 26.0), 0xFF000000);
                     if(ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                     {
+                        clickedButton = true;
                         params.stretchedInstanceLeft = nullptr;
                         params.stretchedInstanceRight = &sound;
-                        params.draggedInstance = nullptr;
-                        params.instanceStartBeforeClick = sound.frameStart;
-                        params.instanceEndBeforeClick = sound.frameEnd;
+
+                        if(!params.selected.contains(&sound))
+                        {
+                            if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+                            {
+                                params.selected.clear();
+                            }
+                            params.selected.insert({&sound,{sound.frameStart,sound.frameEnd}});
+                        }
                     }
                 }
                 //Can drag
@@ -189,20 +209,38 @@ void MidiTimeline(MidiTimelineParams &params){
                     drawlist->AddTriangle(ImVec2(end.x - 2, start.y + 20.0), ImVec2(end.x - 12.0, start.y + 14.0), ImVec2(end.x - 12.0, start.y + 26.0), 0xFF000000);
                     if(ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                     {
+                        clickedButton = true;
                         params.stretchedInstanceLeft = nullptr;
                         params.stretchedInstanceRight = nullptr;
-                        params.draggedInstance = &sound;
-                        params.instanceStartBeforeClick = sound.frameStart;
-                        params.instanceEndBeforeClick = sound.frameEnd;
+                        
+                        if(!params.selected.contains(&sound))
+                        {
+                            if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+                            {
+                                params.selected.clear();
+                            }
+                            params.selected.insert({&sound,{sound.frameStart,sound.frameEnd}});
+                        }
                     }
                 }
             }
+            if(params.selected.contains(&sound)){
+                drawlist->AddRect(start, end, 0xFFFF0000, 0.4, 3);
+                drawlist->AddTriangle(ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0), ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
+                drawlist->AddTriangle(ImVec2(end.x - 2, start.y + 20.0), ImVec2(end.x - 12.0, start.y + 14.0), ImVec2(end.x - 12.0, start.y + 26.0), 0xFF000000);
+            }
+
         }
+    }
+
+    if(ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !params.stretchedInstanceLeft && !params.stretchedInstanceRight && !params.beganClickingTimeline && !clickedButton) 
+    {
+        params.selected.clear();
     }
 
     currentPos = ImVec2(windowPos.x + 5, windowPos.y + 40);
     for(int channel = 0; channel < NUM_CHANNELS; ++channel ) {
-        drawlist->AddRect(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y + 40), 0xFF000000, 0.2);
+        drawlist->AddRect(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y + 41), 0xFF000000, 0.2);
         currentPos.y += 40;
     }
 
