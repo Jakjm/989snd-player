@@ -3,6 +3,7 @@
 #include <string>
 #include "tracker_style.h"
 #include "third-party/imgui/imgui.h"
+#include "third-party/imgui/imgui_internal.h"
 
 const double ZOOM_MAX = 8;
 const double ZOOM_MIN = 1.0 / ZOOM_MAX;
@@ -10,8 +11,8 @@ const int NUM_CHANNELS = 16;
 const double TIMELINE_BOX_HEIGHT = 35.0;
 
 void MidiTimeline(MidiTimelineParams &params){
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, tracker::CREAM);
     ImGui::BeginChild("miditimeline");
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, tracker::SCREEN_BG);
     const auto windowPos = ImGui::GetCursorScreenPos();
     const auto windowSize = ImGui::GetContentRegionAvail();
     const auto drawlist = ImGui::GetWindowDrawList();
@@ -19,7 +20,7 @@ void MidiTimeline(MidiTimelineParams &params){
 
     const auto mousePos = io.MousePos;
 
-    drawlist->AddRectFilled(windowPos, ImVec2(windowPos.x + windowSize.x,windowPos.y + windowSize.y), 0xFFFFFFFF);
+    //drawlist->AddRectFilled(windowPos, ImVec2(windowPos.x + windowSize.x,windowPos.y + windowSize.y), 0xFFFFFFFF);
     drawlist->AddRectFilled(windowPos, ImVec2(windowPos.x + windowSize.x,windowPos.y + TIMELINE_BOX_HEIGHT), 0xFFA0A0A0);
 
 
@@ -27,6 +28,7 @@ void MidiTimeline(MidiTimelineParams &params){
         params.beganClickingTimeline = false;
         params.stretchedInstanceRight = nullptr;
         params.stretchedInstanceLeft = nullptr;
+        params.draggedInstance = nullptr;
 
         for(auto& iter : params.selected)
         {
@@ -40,6 +42,7 @@ void MidiTimeline(MidiTimelineParams &params){
             params.beganClickingTimeline = true;
             params.stretchedInstanceRight = nullptr;
             params.stretchedInstanceLeft = nullptr;
+            params.draggedInstance = nullptr;
             params.timelineStartBeforeClick = params.startFrameTenth;
         }
         else{
@@ -71,7 +74,7 @@ void MidiTimeline(MidiTimelineParams &params){
             if(stretchRight->frameEnd <= stretchRight->frameStart + 1)
                 stretchRight->frameEnd = stretchRight->frameStart + 1;
         }
-        else{
+        else if(const auto draggedInstance = params.draggedInstance){
             for(auto selectedIter : params.selected)
             {
                 int frameStartAtClick = selectedIter.second.first;
@@ -100,12 +103,13 @@ void MidiTimeline(MidiTimelineParams &params){
     
     
     //Timeline drawing code:
+    auto currentPos = ImVec2(windowPos.x + 5, windowPos.y + 16);
 
+    
     //Draw the timeline
     int curFrameTenth = params.startFrameTenth;
     
     //Add a bit of margin
-    auto currentPos = ImVec2(windowPos.x + 5, windowPos.y + 16);
     //Draw horizontal line to right side
     drawlist->AddLine(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y), 0xFF000000);
 
@@ -142,110 +146,154 @@ void MidiTimeline(MidiTimelineParams &params){
         curFrameTenth += 10;
     }
 
+    currentPos = ImVec2(windowPos.x + 5.0, windowPos.y + 16.0);
+    drawlist->AddLine(currentPos, ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * NUM_CHANNELS), 0xFF0000FF, 3.0);
+
     bool clickedButton = false;
-    for(SoundInstance &sound: params.sounds){
-        if(params.startFrameTenth <= 10 * sound.frameEnd && sound.frameStart <= lastFrame){
+    for(SoundInstance &instance: params.sounds){
+        if(params.startFrameTenth <= 10 * instance.frameEnd && instance.frameStart <= lastFrame){
             double startX = windowPos.x + 5;
-            if(sound.frameStart >= firstFrame)
-                startX += (double)(tenthsUntilNext + 10 * (sound.frameStart - firstFrame)) * params.timelineZoom;
+            if(instance.frameStart >= firstFrame)
+                startX += (double)(tenthsUntilNext + 10 * (instance.frameStart - firstFrame)) * params.timelineZoom;
 
             double endX = windowPos.x + windowSize.x - 2;
-            if(sound.frameStart <= lastFrame)
-                endX = windowPos.x + 5 + (double)(tenthsUntilNext + 10 * (sound.frameEnd - firstFrame)) * params.timelineZoom;
+            if(instance.frameStart <= lastFrame)
+                endX = windowPos.x + 5 + (double)(tenthsUntilNext + 10 * (instance.frameEnd - firstFrame)) * params.timelineZoom;
             
-            auto start = ImVec2(startX, windowPos.y + 40 + 40 * sound.channel);
+            auto start = ImVec2(startX, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * instance.channel);
             auto end = ImVec2(endX, start.y + 40.0);
 
+            //Draw a rectangle for the instance
             drawlist->AddRectFilled(start, end, 0xFF0000FF, 0.4);
+
+            bool mouseOverlapsInstanceY = start.y <= mousePos.y && mousePos.y <= end.y;
+            bool mouseOverlapsInstanceX = start.x <= mousePos.x && mousePos.x <= end.x;
+            bool mouseOverlapsInstance = mouseOverlapsInstanceX && mouseOverlapsInstanceY;
+            bool mouseOverlapsInstanceStart = start.x <= mousePos.x && mousePos.x <= start.x + 20.0 && mouseOverlapsInstanceY;
+            bool mouseOverlapsInstanceEnd = end.x - 20.0 <= mousePos.x && mousePos.x <= end.x && mouseOverlapsInstanceEnd;
             
             //Check if potentially able to stretch or drag instance
-            if(start.y <= mousePos.y && mousePos.y <= end.y)
+            //Can stretch left
+            if(params.stretchedInstanceLeft == &instance || mouseOverlapsInstanceStart)
             {
-                //Can stretch left
-                if(start.x <= mousePos.x && mousePos.x <= start.x + 20.0)
+                drawlist->AddTriangleFilled(ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0), ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
+                if(ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstanceStart)
                 {
+                    clickedButton = true;
                     drawlist->AddTriangleFilled(ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0), ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
-                    if(ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-                    {
-                        clickedButton = true;
-                        drawlist->AddTriangleFilled(ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0), ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
-                        params.stretchedInstanceLeft = &sound;
-                        params.stretchedInstanceRight = nullptr;
+                    params.stretchedInstanceLeft = &instance;
+                    params.stretchedInstanceRight = nullptr;
+                    params.draggedInstance = nullptr;
 
-                        if(!params.selected.contains(&sound))
-                        {
-                            if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
-                            {
-                                params.selected.clear();
-                            }
-                            params.selected.insert({&sound,{sound.frameStart,sound.frameEnd}});
-                        }
-                    }
-                }
-                //Can stretch right
-                else if(end.x - 20.0 <= mousePos.x && mousePos.x <= end.x)
-                {
-                    drawlist->AddTriangleFilled(ImVec2(end.x - 2, start.y + 20.0), ImVec2(end.x - 12.0, start.y + 14.0), ImVec2(end.x - 12.0, start.y + 26.0), 0xFF000000);
-                    if(ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                    if(!params.selected.contains(&instance))
                     {
-                        clickedButton = true;
-                        params.stretchedInstanceLeft = nullptr;
-                        params.stretchedInstanceRight = &sound;
-
-                        if(!params.selected.contains(&sound))
-                        {
-                            if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
-                            {
-                                params.selected.clear();
-                            }
-                            params.selected.insert({&sound,{sound.frameStart,sound.frameEnd}});
-                        }
-                    }
-                }
-                //Can drag
-                else if(start.x <= mousePos.x && mousePos.x <= end.x)
-                {
-                    drawlist->AddTriangle(ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0), ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
-                    drawlist->AddTriangle(ImVec2(end.x - 2, start.y + 20.0), ImVec2(end.x - 12.0, start.y + 14.0), ImVec2(end.x - 12.0, start.y + 26.0), 0xFF000000);
-                    if(ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-                    {
-                        clickedButton = true;
-                        params.stretchedInstanceLeft = nullptr;
-                        params.stretchedInstanceRight = nullptr;
-                        
-                        if(!params.selected.contains(&sound))
-                        {
-                            if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
-                            {
-                                params.selected.clear();
-                            }
-                            params.selected.insert({&sound,{sound.frameStart,sound.frameEnd}});
-                        }
+                        if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+                            params.selected.clear();
+                        params.selected.insert({&instance,{instance.frameStart,instance.frameEnd}});
                     }
                 }
             }
-            if(params.selected.contains(&sound)){
-                drawlist->AddRect(start, end, 0xFFFF0000, 0.4, 3);
+            //Can stretch right
+            else if(params.stretchedInstanceRight == &instance || mouseOverlapsInstanceEnd)
+            {
+                drawlist->AddTriangleFilled(ImVec2(end.x - 2, start.y + 20.0), ImVec2(end.x - 12.0, start.y + 14.0), ImVec2(end.x - 12.0, start.y + 26.0), 0xFF000000);
+                if(ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstanceEnd)
+                {
+                    clickedButton = true;
+                    params.stretchedInstanceLeft = nullptr;
+                    params.stretchedInstanceRight = &instance;
+                    params.draggedInstance = nullptr;
+
+                    if(!params.selected.contains(&instance))
+                    {
+                        if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+                            params.selected.clear();
+                        params.selected.insert({&instance,{instance.frameStart,instance.frameEnd}});
+                    }
+                }
+            }
+            //Can drag
+            else if(params.selected.contains(&instance) || mouseOverlapsInstance)
+            {
                 drawlist->AddTriangle(ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0), ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
                 drawlist->AddTriangle(ImVec2(end.x - 2, start.y + 20.0), ImVec2(end.x - 12.0, start.y + 14.0), ImVec2(end.x - 12.0, start.y + 26.0), 0xFF000000);
+                if(ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstance)
+                {
+                    clickedButton = true;
+                    params.stretchedInstanceLeft = nullptr;
+                    params.stretchedInstanceRight = nullptr;
+                    params.draggedInstance = &instance;
+                    
+                    if(!params.selected.contains(&instance))
+                    {
+                        if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+                            params.selected.clear();
+                        params.selected.insert({&instance,{instance.frameStart,instance.frameEnd}});
+                    }
+                }
             }
-
+            if(auto iter = params.selected.find(&instance); iter != params.selected.end())
+            {
+                if(mouseOverlapsInstance && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+                    params.selected.erase(iter);
+                else
+                    drawlist->AddRect(start, end, 0xFFFF0000, 0.4, 3);
+            }
         }
     }
+        
+    //Draw rectangles around each channel row
+    currentPos = ImVec2(windowPos.x + 5, windowPos.y + TIMELINE_BOX_HEIGHT);
+    for(int channel = 0; channel < NUM_CHANNELS; ++channel ) {
+        drawlist->AddRect(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y + 41), 0xFF000000, 0.2);
 
-    if(ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !params.stretchedInstanceLeft && !params.stretchedInstanceRight && !params.beganClickingTimeline && !clickedButton) 
+        const auto channelText = std::string("Channel ") + std::to_string(channel);
+        const auto textSize = ImGui::CalcTextSize(channelText.c_str());
+
+        drawlist->AddText(ImVec2(windowPos.x + 5 + (windowSize.x - textSize.x) / 2.0, currentPos.y + 20 - textSize.y / 2.0), 0x77000000, channelText.c_str());
+        
+        currentPos.y += 40;
+    }
+    
+    //Create a window for customizing currently selected instance.
+    bool clickedProperties = false;
+    if(params.selected.size() == 1){
+        ImGui::SetNextWindowSizeConstraints(ImVec2(300,400), ImVec2(300,400));
+        ImGui::SetNextWindowPos(ImVec2(windowPos.x + windowSize.x, windowPos.y + windowSize.y), ImGuiCond_Always, ImVec2(0.95,0.95));
+        bool open = true;
+        ImGui::PushStyleColor(ImGuiCol_Text, tracker::SCREEN_FG);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, tracker::CREAM);
+        ImGui::Begin("Selected Instance", &open, ImGuiWindowFlags_AlwaysAutoResize 
+        | ImGuiWindowFlags_NoSavedSettings 
+        | ImGuiWindowFlags_NoFocusOnAppearing 
+        | ImGuiWindowFlags_NoNav 
+        | ImGuiWindowFlags_NoMove);
+        
+        const auto windowPos = ImGui::GetCursorScreenPos();
+        const auto windowSize = ImGui::GetContentRegionAvail();
+        
+        auto& instance = params.selected.begin()->first;
+        ImGui::SetNextItemWidth(150.0);
+        ImGui::SliderInt("Start Frame", &instance->frameStart, 0, instance->frameEnd - 1);
+        ImGui::SetNextItemWidth(150.0);
+        ImGui::SliderInt("End Frame", &instance->frameEnd, instance->frameStart + 1, lastFrame);
+        ImGui::SetNextItemWidth(150.0);
+        ImGui::SliderInt("Prog:",&instance->soundNumber, 0, NUM_CHANNELS);
+
+        //printf("mousePos (%f %f) windowPos (%f %f) windowSize (%f %f) \n", mousePos.x, mousePos.y, windowPos.x, windowPos.y, windowSize.x, windowSize.y);
+        if(windowPos.x <= mousePos.x && mousePos.x <= windowPos.x + windowSize.x &&
+            windowPos.y <= mousePos.y && mousePos.y <= windowPos.y + windowSize.y && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            clickedProperties = true;
+
+        ImGui::End();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleColor();
+    }
+    if(ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !params.stretchedInstanceLeft && !params.stretchedInstanceRight && 
+        !params.beganClickingTimeline && !clickedButton && !clickedProperties) 
     {
         params.selected.clear();
     }
-
-    currentPos = ImVec2(windowPos.x + 5, windowPos.y + 40);
-    for(int channel = 0; channel < NUM_CHANNELS; ++channel ) {
-        drawlist->AddRect(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y + 41), 0xFF000000, 0.2);
-        currentPos.y += 40;
-    }
-
-
-    
     ImGui::PopStyleColor();
     ImGui::EndChild();
 }

@@ -20,6 +20,7 @@ struct MidiTimelineParams{
     bool beganClickingTimeline = false;
     SoundInstance *stretchedInstanceLeft = nullptr;
     SoundInstance *stretchedInstanceRight = nullptr;
+    SoundInstance *draggedInstance = nullptr;
     int timelineStartBeforeClick = -1;
     std::map<SoundInstance*, std::pair<int,int>> selected;
 };
