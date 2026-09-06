@@ -4,6 +4,8 @@
 #include "tracker_style.h"
 #include "third-party/imgui/imgui.h"
 #include "third-party/imgui/imgui_internal.h"
+#include <iterator>
+#include <cstdint>
 
 const double ZOOM_MAX = 8;
 const double ZOOM_MIN = 1.0 / ZOOM_MAX;
@@ -30,6 +32,7 @@ void MidiTimeline(MidiTimelineParams &params){
         params.stretchedInstanceLeft = nullptr;
         params.draggedInstance = nullptr;
 
+        //Update initial start/end of selected nodes 
         for(auto& iter : params.selected)
         {
             iter.second.first = iter.first->frameStart;
@@ -60,7 +63,7 @@ void MidiTimeline(MidiTimelineParams &params){
             if(params.startFrameTenth < 0)
                 params.startFrameTenth = 0;
         }
-        else if(const auto stretchLeft = params.stretchedInstanceLeft; stretchLeft && params.selected.size() == 1)
+        else if(const auto stretchLeft = params.stretchedInstanceLeft)
         {
             stretchLeft->frameStart = params.selected[stretchLeft].first + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
             if(stretchLeft->frameStart < 0)
@@ -68,7 +71,7 @@ void MidiTimeline(MidiTimelineParams &params){
             else if(stretchLeft->frameStart >= stretchLeft->frameEnd - 1)
                 stretchLeft->frameStart = stretchLeft->frameEnd - 1;
         }
-        else if(const auto stretchRight = params.stretchedInstanceRight; stretchRight && params.selected.size() == 1)
+        else if(const auto stretchRight = params.stretchedInstanceRight)
         {
             stretchRight->frameEnd = params.selected[stretchRight].second + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
             if(stretchRight->frameEnd <= stretchRight->frameStart + 1)
@@ -146,6 +149,7 @@ void MidiTimeline(MidiTimelineParams &params){
         curFrameTenth += 10;
     }
 
+    //Draw a line indicating current frame. TODO: make this go offscreen
     currentPos = ImVec2(windowPos.x + 5.0, windowPos.y + 16.0);
     drawlist->AddLine(currentPos, ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * NUM_CHANNELS), 0xFF0000FF, 3.0);
 
@@ -169,8 +173,8 @@ void MidiTimeline(MidiTimelineParams &params){
             bool mouseOverlapsInstanceY = start.y <= mousePos.y && mousePos.y <= end.y;
             bool mouseOverlapsInstanceX = start.x <= mousePos.x && mousePos.x <= end.x;
             bool mouseOverlapsInstance = mouseOverlapsInstanceX && mouseOverlapsInstanceY;
-            bool mouseOverlapsInstanceStart = start.x <= mousePos.x && mousePos.x <= start.x + 20.0 && mouseOverlapsInstanceY;
-            bool mouseOverlapsInstanceEnd = end.x - 20.0 <= mousePos.x && mousePos.x <= end.x && mouseOverlapsInstanceEnd;
+            bool mouseOverlapsInstanceStart = (start.x <= mousePos.x) && (mousePos.x <= start.x + 20.0) && mouseOverlapsInstanceY;
+            bool mouseOverlapsInstanceEnd = (end.x - 20.0 <= mousePos.x) && (mousePos.x <= end.x) && mouseOverlapsInstanceY;
             
             //Check if potentially able to stretch or drag instance
             //Can stretch left
@@ -237,7 +241,13 @@ void MidiTimeline(MidiTimelineParams &params){
                 if(mouseOverlapsInstance && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
                     params.selected.erase(iter);
                 else
+                {
                     drawlist->AddRect(start, end, 0xFFFF0000, 0.4, 3);
+                    auto index = std::distance(params.selected.begin(), iter);
+                    std::string selectionNumberText = "(" + std::to_string(index) + ")";
+                    auto textSize = ImGui::CalcTextSize(selectionNumberText.c_str());
+                    drawlist->AddText(ImVec2(start.x + (end.x - start.x - textSize.x) / 2.0, start.y + 20.0 - textSize.y / 2.0), 0xFF000000, selectionNumberText.c_str());
+                }
             }
         }
     }
@@ -257,13 +267,14 @@ void MidiTimeline(MidiTimelineParams &params){
     
     //Create a window for customizing currently selected instance.
     bool clickedProperties = false;
-    if(params.selected.size() == 1){
+    if(!params.selected.empty()){
         ImGui::SetNextWindowSizeConstraints(ImVec2(300,400), ImVec2(300,400));
         ImGui::SetNextWindowPos(ImVec2(windowPos.x + windowSize.x, windowPos.y + windowSize.y), ImGuiCond_Always, ImVec2(0.95,0.95));
         bool open = true;
         ImGui::PushStyleColor(ImGuiCol_Text, tracker::SCREEN_FG);
         ImGui::PushStyleColor(ImGuiCol_WindowBg, tracker::CREAM);
-        ImGui::Begin("Selected Instance", &open, ImGuiWindowFlags_AlwaysAutoResize 
+        ImGui::Begin(params.selected.size() > 1 ? "SelectedInstances" : "Selected Instance", 
+            &open, ImGuiWindowFlags_AlwaysAutoResize 
         | ImGuiWindowFlags_NoSavedSettings 
         | ImGuiWindowFlags_NoFocusOnAppearing 
         | ImGuiWindowFlags_NoNav 
@@ -271,14 +282,28 @@ void MidiTimeline(MidiTimelineParams &params){
         
         const auto windowPos = ImGui::GetCursorScreenPos();
         const auto windowSize = ImGui::GetContentRegionAvail();
-        
-        auto& instance = params.selected.begin()->first;
-        ImGui::SetNextItemWidth(150.0);
-        ImGui::SliderInt("Start Frame", &instance->frameStart, 0, instance->frameEnd - 1);
-        ImGui::SetNextItemWidth(150.0);
-        ImGui::SliderInt("End Frame", &instance->frameEnd, instance->frameStart + 1, lastFrame);
-        ImGui::SetNextItemWidth(150.0);
-        ImGui::SliderInt("Prog:",&instance->soundNumber, 0, NUM_CHANNELS);
+
+        if(ImGui::BeginTabBar("")){
+            int index = 0;
+            for(auto iter : params.selected)
+            {
+                auto& instance = iter.first;
+                std::string selectionNumberText = "(" + std::to_string(index) + ")";
+                auto textSize = ImGui::CalcTextSize(selectionNumberText.c_str());
+                if (ImGui::BeginTabItem(selectionNumberText.c_str()))
+                {
+                    ImGui::SetNextItemWidth(150.0);
+                    ImGui::SliderInt("Start Frame", &instance->frameStart, 0, instance->frameEnd - 1);
+                    ImGui::SetNextItemWidth(150.0);
+                    ImGui::SliderInt("End Frame", &instance->frameEnd, instance->frameStart + 1, lastFrame);
+                    ImGui::SetNextItemWidth(150.0);
+                    ImGui::SliderInt("Prog",&instance->soundNumber, 0, NUM_CHANNELS);
+                    ImGui::EndTabItem();
+                }
+                ++index;
+            }
+            ImGui::EndTabBar();
+        }
 
         //printf("mousePos (%f %f) windowPos (%f %f) windowSize (%f %f) \n", mousePos.x, mousePos.y, windowPos.x, windowPos.y, windowSize.x, windowSize.y);
         if(windowPos.x <= mousePos.x && mousePos.x <= windowPos.x + windowSize.x &&
