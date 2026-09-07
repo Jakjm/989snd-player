@@ -386,6 +386,7 @@ void SndPlayer::trigger_selected() {
   ActiveSound a;
   a.handle = handle;
   a.start_tick = m_player.GetTick();
+  a.last_interrupt_tick = a.start_tick;
   a.is_music = bank.kind == BankKind::Music;
   a.bank_name = bank.name;
   a.bank_handle = bank.handle;
@@ -435,6 +436,7 @@ void SndPlayer::pause_all() {
   for (auto& a : m_active) {
     if (!a.paused) {
       m_player.PauseSound(a.handle);
+      a.elapsed_before_pause += (m_player.GetTick() - a.last_interrupt_tick);
       a.paused = true;
     }
   }
@@ -445,6 +447,7 @@ void SndPlayer::resume_all() {
     if (a.paused) {
       m_player.ContinueSound(a.handle);
       a.paused = false;
+      a.last_interrupt_tick = m_player.GetTick();
     }
   }
 }
@@ -890,8 +893,10 @@ void SndPlayer::draw_active_panel() {
         }
         if (bevel_button(a.paused ? "Resume" : "Pause", ImVec2(70, 0))) {
           if (a.paused) {
+            a.last_interrupt_tick = m_player.GetTick();
             m_player.ContinueSound(a.handle);
           } else {
+            a.elapsed_before_pause += (m_player.GetTick() - a.last_interrupt_tick);
             m_player.PauseSound(a.handle);
           }
           a.paused = !a.paused;
@@ -981,8 +986,15 @@ void SndPlayer::draw_active_panel() {
       }
     }
 
-    if(m_midi_timeline_params.sounds.size() == 3 && m_selected_bank != -1){
-      m_midi_timeline_params.sounds = readMidiData((snd::MusicBank*)m_banks[m_selected_bank].bank);
+    if(m_midi_timeline_params.notes.size() == 3 && m_selected_bank != -1){
+      readMidiData((snd::MusicBank*)m_banks[m_selected_bank].bank, m_midi_timeline_params);
+    }
+    if(m_active.size() > 0 && m_selected_active != -1)
+    {
+      auto& active =  m_active[(size_t)m_selected_active]; 
+      m_midi_timeline_params.tick = active.elapsed_before_pause;
+      if(!active.paused)
+        m_midi_timeline_params.tick += (m_player.GetTick() - active.last_interrupt_tick);
     }
     MidiTimeline(m_midi_timeline_params);
     ImGui::PopStyleColor();

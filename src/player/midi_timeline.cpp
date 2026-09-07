@@ -9,22 +9,21 @@
 #include <cstdint>
 #include "sound/989snd/musicbank.h"
 
-const double ZOOM_MAX = 8000;
-const double ZOOM_MIN = 1.0 / ZOOM_MAX;
+const double ZOOM_MAX = 16;
+const double ZOOM_MIN = 1.0 / 8000.0;
 const int NUM_CHANNELS = 16;
 const double TIMELINE_BOX_HEIGHT = 35.0;
 
 
 static constexpr int tickrate = 240;
 static constexpr int mics_per_tick = 1000000 / tickrate;
-std::vector<SoundInstance> readMidiData(snd::MusicBank *bank){
+void readMidiData(snd::MusicBank *bank,  MidiTimelineParams &params){
     auto &midi = std::get<snd::Midi>(bank->MidiData);
     u8 *dataStart = midi.DataStart;
 
     u8 *curData = dataStart;
     u64 time = 0;
 
-    std::vector<SoundInstance> notes;
     std::array<int,NUM_CHANNELS> channel_notes;
     std::array<int,NUM_CHANNELS> channel_programs;
     for(int i = 0; i < NUM_CHANNELS;++i)
@@ -33,8 +32,9 @@ std::vector<SoundInstance> readMidiData(snd::MusicBank *bank){
         channel_programs[i] = -1;
     }
 
-    u64 tempo = midi.Tempo;
-    u64 ppt = 100 * mics_per_tick / (tempo / midi.PPQ);
+    params.tempo = midi.Tempo; //micros per quarter note
+    params.PPQ = midi.PPQ;
+    u64 ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
     u64 tickDelta = 0, tickError = 0, tickCountdown;
     u8 status_byte;
     do{
@@ -71,14 +71,16 @@ std::vector<SoundInstance> readMidiData(snd::MusicBank *bank){
                 u8 channel = status_byte & 0xF;
                 u8 note = *curData;
                 u8 velocity = *(curData + 1);
-                assert(channel < NUM_CHANNELS);
+                u8 program = channel_programs[channel];
+                
+                assert(channel < NUM_CHANNELS && channel_notes[channel] == -1 && channel_programs[channel] != -1);
                 //If velocity is non-zero, fall through to note-off
                 if(velocity != 0)
                 {
                     curData += 2; 
     
-                    notes.emplace_back(time,-1,note,channel);
-                    channel_notes[channel] = notes.size() - 1;
+                    params.notes.emplace_back(time,-1,program,note,channel);
+                    channel_notes[channel] = params.notes.size() - 1;
                     break;
                 }
             }   
@@ -89,8 +91,8 @@ std::vector<SoundInstance> readMidiData(snd::MusicBank *bank){
                 u8 channel = status_byte & 0xF;
                 u8 note = *curData;
 
-                assert(channel < NUM_CHANNELS);
-                notes[channel_notes[channel]].frameEnd = time;
+                assert(channel < NUM_CHANNELS && channel_notes[channel] == note && channel_programs[channel] != -1);
+                params.notes[channel_notes[channel]].tickEnd = time;
                 curData += 2;
                 break;
             }
@@ -125,16 +127,16 @@ std::vector<SoundInstance> readMidiData(snd::MusicBank *bank){
                     // MetaEvent();
                     // break;
                     if(firstMeta)
-                        return notes;
+                        return;
                     else
                     {
                         size_t len = *(curData + 1);
                         if(*curData == 0x2f)
-                            return notes; //Break out before looping
+                            return; //Break out before looping
                         else if(*curData == 0x51)
                         {
-                            tempo = (curData[2] << 16) | (curData[3] << 8) | (curData[4]);
-                            ppt = 100 * mics_per_tick / (tempo / midi.PPQ);
+                            params.tempo = (curData[2] << 16) | (curData[3] << 8) | (curData[4]);
+                            ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
                         }
                         curData += len + 2;
                         firstMeta = 1;
@@ -149,18 +151,23 @@ std::vector<SoundInstance> readMidiData(snd::MusicBank *bank){
             [[fallthrough]];
             default:
             {
-                return notes;
+                return;
                 // throw MidiError(fmt::format("invalid status {}", status_byte));
                 // return;
             }
         }
     }while(status_byte != 0xF0);
-    return notes;
+    return;
 }
 
-void MidiTimeline(MidiTimelineParams &params){
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, tracker::CREAM);
-    ImGui::BeginChild("miditimeline");
+void drawProgs(MidiTimelineParams &params){
+
+}
+
+void drawMidiTimeline(MidiTimelineParams &params){
+    const auto topline = fmt::format("Tempo (micros per quarter note): {} PPQ: {}", params.tempo, params.PPQ);
+    ImGui::Text(topline.c_str());
+
     const auto windowPos = ImGui::GetCursorScreenPos();
     const auto windowSize = ImGui::GetContentRegionAvail();
     const auto drawlist = ImGui::GetWindowDrawList();
@@ -179,10 +186,9 @@ void MidiTimeline(MidiTimelineParams &params){
         params.draggedInstance = nullptr;
 
         //Update initial start/end of selected nodes 
-        for(auto& iter : params.selected)
-        {
-            iter.second.first = iter.first->frameStart;
-            iter.second.second = iter.first->frameEnd;
+        for(auto& iter : params.selected) {
+            iter.second.first = iter.first->tickStart;
+            iter.second.second = iter.first->tickEnd;
         }
     }
     else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -192,48 +198,48 @@ void MidiTimeline(MidiTimelineParams &params){
             params.stretchedInstanceRight = nullptr;
             params.stretchedInstanceLeft = nullptr;
             params.draggedInstance = nullptr;
-            params.timelineStartBeforeClick = params.startFrameTenth;
+            params.timelineStartBeforeClick = params.startTick;
         }
         else{
             params.beganClickingTimeline = false;
         }
     }
     
-    
+    double tickWidth = 10.0 * params.timelineZoom;
     if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
     {
         ImVec2 dragDelta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
         
         if (params.beganClickingTimeline) {
-            params.startFrameTenth = params.timelineStartBeforeClick - (int)ceil(dragDelta.x / params.timelineZoom);
-            if(params.startFrameTenth < 0)
-                params.startFrameTenth = 0;
+            params.startTick = params.timelineStartBeforeClick - (int)ceil(dragDelta.x / tickWidth);
+            if(params.startTick < 0)
+                params.startTick = 0;
         }
         else if(const auto stretchLeft = params.stretchedInstanceLeft)
         {
-            stretchLeft->frameStart = params.selected[stretchLeft].first + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
-            if(stretchLeft->frameStart < 0)
-                stretchLeft->frameStart = 0;
-            else if(stretchLeft->frameStart >= stretchLeft->frameEnd - 1)
-                stretchLeft->frameStart = stretchLeft->frameEnd - 1;
+            stretchLeft->tickStart = params.selected[stretchLeft].first + (int)ceil(dragDelta.x / tickWidth);
+            if(stretchLeft->tickStart < 0)
+                stretchLeft->tickStart = 0;
+            else if(stretchLeft->tickStart >= stretchLeft->tickEnd - 1)
+                stretchLeft->tickStart = stretchLeft->tickEnd - 1;
         }
         else if(const auto stretchRight = params.stretchedInstanceRight)
         {
-            stretchRight->frameEnd = params.selected[stretchRight].second + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
-            if(stretchRight->frameEnd <= stretchRight->frameStart + 1)
-                stretchRight->frameEnd = stretchRight->frameStart + 1;
+            stretchRight->tickEnd = params.selected[stretchRight].second + (int)ceil(dragDelta.x / tickWidth);
+            if(stretchRight->tickEnd <= stretchRight->tickStart + 1)
+                stretchRight->tickEnd = stretchRight->tickStart + 1;
         }
         else if(const auto draggedInstance = params.draggedInstance){
             for(auto selectedIter : params.selected)
             {
-                int frameStartAtClick = selectedIter.second.first;
-                int frameEndAtClick = selectedIter.second.second;
-                selectedIter.first->frameStart = frameStartAtClick + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
-                selectedIter.first->frameEnd = frameEndAtClick + (int)ceil(dragDelta.x / (params.timelineZoom * 10.0));
-                if(selectedIter.first->frameStart < 0)
+                int tickStartAtClick = selectedIter.second.first;
+                int tickEndAtClick = selectedIter.second.second;
+                selectedIter.first->tickStart = tickStartAtClick + (int)ceil(dragDelta.x / tickWidth);
+                selectedIter.first->tickEnd = tickEndAtClick + (int)ceil(dragDelta.x / tickWidth);
+                if(selectedIter.first->tickStart < 0)
                 {
-                    selectedIter.first->frameStart = 0;
-                    selectedIter.first->frameEnd = (frameEndAtClick - frameStartAtClick);
+                    selectedIter.first->tickStart = 0;
+                    selectedIter.first->tickEnd = (tickEndAtClick - tickStartAtClick);
                 }
             }
         }
@@ -253,62 +259,46 @@ void MidiTimeline(MidiTimelineParams &params){
     
     //Timeline drawing code:
     auto currentPos = ImVec2(windowPos.x + 5, windowPos.y + 16);
-
-    
     //Draw the timeline
-    int curFrameTenth = params.startFrameTenth;
-    
+    int firstTick = params.startTick;
+    int curTick = params.startTick;
+    double spaceRemaining = windowPos.x + windowSize.x - 2.0 - currentPos.x;
+    int lastTick = curTick + (int)ceil(spaceRemaining / (10 * params.timelineZoom));
     //Add a bit of margin
     //Draw horizontal line to right side
     drawlist->AddLine(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y), 0xFF000000);
 
-    //Account for being between two frames
-    int tenthsUntilNext = curFrameTenth % 10;
-    if(tenthsUntilNext != 0)
-    {
-        tenthsUntilNext = 10 - tenthsUntilNext;
-        currentPos.x += (double)tenthsUntilNext * params.timelineZoom;
-        curFrameTenth += tenthsUntilNext;
-    }
-    int firstFrame = curFrameTenth / 10;
-    double spaceRemaining = windowPos.x + windowSize.x - 2.0 - currentPos.x;
-    int lastFrame = curFrameTenth + (int)ceil(spaceRemaining / (10 * params.timelineZoom));
-    
-
-    //If curFrameTenth is divisible by this, draw the currentFrame line under the line.
-    int frameNumberVisibleMultiple = 50 * (int)ceil(1.0 / params.timelineZoom);
-
+    //If curTickTenth is divisible by this, draw the currentTick line under the line.
+    const auto numberSize = ImGui::CalcTextSize(std::to_string(lastTick).c_str());
+    int tickNumberVisibleMultiple = (int)ceil(2 * numberSize.x / tickWidth);
     while(currentPos.x < windowPos.x + windowSize.x - 2) {
         double lineHeight;
-        if(curFrameTenth % frameNumberVisibleMultiple == 0){
+        if(curTick % tickNumberVisibleMultiple == 0){
             lineHeight = 15;
 
-            std::string frameNumberText = std::to_string(curFrameTenth / 10);
-            double halfTextWidth = ImGui::CalcTextSize(frameNumberText.c_str()).x / 2.0;
-            drawlist->AddText(ImVec2(currentPos.x - halfTextWidth, windowPos.y + 2), 0xFF000000, frameNumberText.c_str());
+            std::string tickNumberText = std::to_string(curTick);
+            double halfTextWidth = ImGui::CalcTextSize(tickNumberText.c_str()).x / 2.0;
+            drawlist->AddText(ImVec2(currentPos.x - halfTextWidth, windowPos.y + 2), 0xFF000000, tickNumberText.c_str());
         }
         else{
             lineHeight = 10;
         }
         drawlist->AddLine(currentPos,ImVec2(currentPos.x, currentPos.y + lineHeight), 0xFF000000, 1.0);
         currentPos.x += 10 * params.timelineZoom;
-        curFrameTenth += 10;
+        curTick += 1;
     }
 
-    //Draw a line indicating current frame. TODO: make this go offscreen
-    currentPos = ImVec2(windowPos.x + 5.0, windowPos.y + 16.0);
-    drawlist->AddLine(currentPos, ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * NUM_CHANNELS), 0xFF0000FF, 3.0);
-
+    
     bool clickedButton = false;
-    for(SoundInstance &instance: params.sounds){
-        if(params.startFrameTenth <= 10 * instance.frameEnd && instance.frameStart <= lastFrame){
+    for(SoundInstance &instance: params.notes){
+        if(params.startTick <= instance.tickEnd && instance.tickStart <= lastTick){
             double startX = windowPos.x + 5;
-            if(instance.frameStart >= firstFrame)
-                startX += (double)(tenthsUntilNext + 10 * (instance.frameStart - firstFrame)) * params.timelineZoom;
+            if(instance.tickStart >= params.startTick)
+                startX += (double)(10 * (instance.tickStart - firstTick)) * params.timelineZoom;
 
             double endX = windowPos.x + windowSize.x - 2;
-            if(instance.frameStart <= lastFrame)
-                endX = windowPos.x + 5 + (double)(tenthsUntilNext + 10 * (instance.frameEnd - firstFrame)) * params.timelineZoom;
+            if(instance.tickStart <= lastTick)
+                endX = windowPos.x + 5 + (double)(10 * (instance.tickEnd - firstTick)) * params.timelineZoom;
             
             auto start = ImVec2(startX, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * instance.channel);
             auto end = ImVec2(endX, start.y + 40.0);
@@ -339,7 +329,7 @@ void MidiTimeline(MidiTimelineParams &params){
                     {
                         if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
                             params.selected.clear();
-                        params.selected.insert({&instance,{instance.frameStart,instance.frameEnd}});
+                        params.selected.insert({&instance,{instance.tickStart,instance.tickEnd}});
                     }
                 }
             }
@@ -358,7 +348,7 @@ void MidiTimeline(MidiTimelineParams &params){
                     {
                         if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
                             params.selected.clear();
-                        params.selected.insert({&instance,{instance.frameStart,instance.frameEnd}});
+                        params.selected.insert({&instance,{instance.tickStart,instance.tickEnd}});
                     }
                 }
             }
@@ -378,7 +368,7 @@ void MidiTimeline(MidiTimelineParams &params){
                     {
                         if(!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
                             params.selected.clear();
-                        params.selected.insert({&instance,{instance.frameStart,instance.frameEnd}});
+                        params.selected.insert({&instance,{instance.tickStart,instance.tickEnd}});
                     }
                 }
             }
@@ -420,7 +410,7 @@ void MidiTimeline(MidiTimelineParams &params){
         ImGui::PushStyleColor(ImGuiCol_Text, tracker::SCREEN_FG);
         ImGui::PushStyleColor(ImGuiCol_WindowBg, tracker::CREAM);
         ImGui::Begin(params.selected.size() > 1 ? "SelectedInstances" : "Selected Instance", 
-            &open, ImGuiWindowFlags_AlwaysAutoResize 
+        &open, ImGuiWindowFlags_AlwaysAutoResize 
         | ImGuiWindowFlags_NoSavedSettings 
         | ImGuiWindowFlags_NoFocusOnAppearing 
         | ImGuiWindowFlags_NoNav 
@@ -428,8 +418,8 @@ void MidiTimeline(MidiTimelineParams &params){
         
         const auto windowPos = ImGui::GetCursorScreenPos();
         const auto windowSize = ImGui::GetContentRegionAvail();
-
-        if(ImGui::BeginTabBar("")){
+        
+        if(ImGui::BeginTabBar("Note Selections")){
             int index = 0;
             for(auto iter : params.selected)
             {
@@ -439,11 +429,13 @@ void MidiTimeline(MidiTimelineParams &params){
                 if (ImGui::BeginTabItem(selectionNumberText.c_str()))
                 {
                     ImGui::SetNextItemWidth(150.0);
-                    ImGui::SliderInt("Start Frame", &instance->frameStart, 0, instance->frameEnd - 1);
+                    ImGui::SliderInt("Start Tick", &instance->tickStart, 0, instance->tickEnd - 1);
                     ImGui::SetNextItemWidth(150.0);
-                    ImGui::SliderInt("End Frame", &instance->frameEnd, instance->frameStart + 1, lastFrame);
+                    ImGui::SliderInt("End Tick", &instance->tickEnd, instance->tickStart + 1, lastTick);
                     ImGui::SetNextItemWidth(150.0);
-                    ImGui::SliderInt("Prog",&instance->soundNumber, 0, NUM_CHANNELS);
+                    ImGui::SliderInt("Program",&instance->program, 0, NUM_CHANNELS);
+                    ImGui::SetNextItemWidth(150.0);
+                    ImGui::SliderInt("Note",&instance->note, 0, NUM_CHANNELS);
                     ImGui::EndTabItem();
                 }
                 ++index;
@@ -464,6 +456,32 @@ void MidiTimeline(MidiTimelineParams &params){
         !params.beganClickingTimeline && !clickedButton && !clickedProperties) 
     {
         params.selected.clear();
+    }
+
+    //Draw a line indicating current tick.
+    if(firstTick <= params.tick  && params.tick <= lastTick)
+    {
+        currentPos = ImVec2(windowPos.x + 5.0 + (params.tick - firstTick) * 10.0 * params.timelineZoom, windowPos.y + 16.0);
+        drawlist->AddLine(currentPos, ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * NUM_CHANNELS), 0xFF00FF00, 3.0);
+    }
+}
+
+void MidiTimeline(MidiTimelineParams &params){
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, tracker::CREAM);
+    ImGui::BeginChild("miditimeline");
+
+    if(ImGui::BeginTabBar("MidiTimelineBar")){
+        if (ImGui::BeginTabItem("Timeline"))
+        {
+            drawMidiTimeline(params);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Progs"))
+        {
+            drawProgs(params);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
     ImGui::PopStyleColor();
     ImGui::EndChild();

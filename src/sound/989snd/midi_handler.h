@@ -102,12 +102,12 @@ class MidiHandler : public SoundHandler {
   u8* m_seq_data_start{nullptr};
   u8* m_seq_ptr{nullptr};
   u8 m_status{0};
-  u32 m_tempo{500000};
-  u32 m_ppq{480};
+  u32 m_tempo{500000}; //Microseconds per quarter note
+  u32 m_ppq{480}; //Pulses per quarter note
   u32 m_time{0};
   s32 m_tickerror{0};
   s32 m_tickdelta{0};
-  s32 m_ppt{0};
+  s32 m_ppt{0}; //Pulses per tick
   u64 m_tick_countdown{0};
   bool m_get_delta{true};
   bool m_track_complete{false};

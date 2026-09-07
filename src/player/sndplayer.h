@@ -61,6 +61,10 @@ class SndPlayer {
     snd::BankHandle bank_handle = nullptr;
     u32 sound_index = 0;
     s32 start_tick = 0;
+
+    //Current elapsed time = elapsed_before_pause + !paused * (get_tick() - last_interupt_tick);
+    s32 elapsed_before_pause = 0;
+    s32 last_interrupt_tick = 0;
     bool is_music = false;
     bool paused = false;
     float level = 1.0f;

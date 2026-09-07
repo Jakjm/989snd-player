@@ -222,7 +222,7 @@ void MidiHandler::NoteOn() {
   auto& program = bank->Progs[m_programs[channel]];
 
   for (auto& t : program.Tones) {
-    if (note >= t.MapLow && note <= t.MapHigh) {
+    if (t.MapLow <= note && note <= t.MapHigh) {
       s16 pan = m_chanpan[channel] + m_pan;
       if (pan >= 360) {
         pan -= 360;
