@@ -992,9 +992,8 @@ void SndPlayer::draw_active_panel() {
     if(m_active.size() > 0 && m_selected_active != -1)
     {
       auto& active =  m_active[(size_t)m_selected_active]; 
-      m_midi_timeline_params.tick = active.elapsed_before_pause;
-      if(!active.paused)
-        m_midi_timeline_params.tick += (m_player.GetTick() - active.last_interrupt_tick);
+      int player_tick = active.elapsed_before_pause + (active.paused ? 0 : (m_player.GetTick() - active.last_interrupt_tick));
+      m_midi_timeline_params.syncWithPlayerTick(player_tick);
     }
     MidiTimeline(m_midi_timeline_params);
     ImGui::PopStyleColor();

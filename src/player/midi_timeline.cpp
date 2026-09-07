@@ -6,7 +6,6 @@
 #include "third-party/imgui/imgui_internal.h"
 #include "fmt/format.h"
 #include <iterator>
-#include <cstdint>
 #include "sound/989snd/musicbank.h"
 
 const double ZOOM_MAX = 16;
@@ -14,23 +13,17 @@ const double ZOOM_MIN = 1.0 / 8000.0;
 const int NUM_CHANNELS = 16;
 const double TIMELINE_BOX_HEIGHT = 35.0;
 
-
-static constexpr int tickrate = 240;
-static constexpr int mics_per_tick = 1000000 / tickrate;
 void readMidiData(snd::MusicBank *bank,  MidiTimelineParams &params){
+    params.notes.clear();
     auto &midi = std::get<snd::Midi>(bank->MidiData);
     u8 *dataStart = midi.DataStart;
-
     u8 *curData = dataStart;
     u64 time = 0;
 
-    std::array<int,NUM_CHANNELS> channel_notes;
+    std::array<std::map<int,int>,NUM_CHANNELS> channel_notes;
     std::array<int,NUM_CHANNELS> channel_programs;
     for(int i = 0; i < NUM_CHANNELS;++i)
-    {
-        channel_notes[i] = -1;
         channel_programs[i] = -1;
-    }
 
     params.tempo = midi.Tempo; //micros per quarter note
     params.PPQ = midi.PPQ;
@@ -64,23 +57,19 @@ void readMidiData(snd::MusicBank *bank,  MidiTimelineParams &params){
             case 0x9:
             {
                 //NoteON
-                //assert(channel_notes[channel] == nullptr);
                 //break;
-                //NoteOn();
                 //break;
                 u8 channel = status_byte & 0xF;
                 u8 note = *curData;
                 u8 velocity = *(curData + 1);
                 u8 program = channel_programs[channel];
                 
-                assert(channel < NUM_CHANNELS && channel_notes[channel] == -1 && channel_programs[channel] != -1);
                 //If velocity is non-zero, fall through to note-off
                 if(velocity != 0)
                 {
                     curData += 2; 
-    
                     params.notes.emplace_back(time,-1,program,note,channel);
-                    channel_notes[channel] = params.notes.size() - 1;
+                    channel_notes[channel][note] = params.notes.size() - 1;
                     break;
                 }
             }   
@@ -91,8 +80,8 @@ void readMidiData(snd::MusicBank *bank,  MidiTimelineParams &params){
                 u8 channel = status_byte & 0xF;
                 u8 note = *curData;
 
-                assert(channel < NUM_CHANNELS && channel_notes[channel] == note && channel_programs[channel] != -1);
-                params.notes[channel_notes[channel]].tickEnd = time;
+                params.notes[channel_notes[channel][note]].tickEnd = time;
+                channel_notes[channel][note] = -1;
                 curData += 2;
                 break;
             }
@@ -204,8 +193,11 @@ void drawMidiTimeline(MidiTimelineParams &params){
             params.beganClickingTimeline = false;
         }
     }
-    
-    double tickWidth = 10.0 * params.timelineZoom;
+
+    const int ticksPerMeasure = 4 * params.PPQ;
+    const double quarterNoteWidth = 10.0 * params.timelineZoom;
+    const double measureWidth = 4.0 * quarterNoteWidth;
+    const double tickWidth = measureWidth / ticksPerMeasure;
     if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
     {
         ImVec2 dragDelta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
@@ -244,9 +236,6 @@ void drawMidiTimeline(MidiTimelineParams &params){
             }
         }
     }
-    //printf("Released: %d Mouse Down: %d Clicked: %d Began Clicking Timeline%d\n", ImGui::IsMouseReleased(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::IsMouseClicked(ImGuiMouseButton_Left), params.beganClickingTimeline);
-    //printf("WindowSize:(%f,%f) WindowSize:(%f,%f) Mouse Pos:(%f,%f)\n", windowPos.x, windowPos.y, windowSize.x, windowSize.y, mousePos.x, mousePos.y);
-    //If mouse is on widget 
     //Allow the timeline to be dragged left/right
     //Allow zooming in/out
     if(io.MouseWheel > 0.0 && params.timelineZoom < ZOOM_MAX){
@@ -259,33 +248,49 @@ void drawMidiTimeline(MidiTimelineParams &params){
     
     //Timeline drawing code:
     auto currentPos = ImVec2(windowPos.x + 5, windowPos.y + 16);
-    //Draw the timeline
-    int firstTick = params.startTick;
-    int curTick = params.startTick;
-    double spaceRemaining = windowPos.x + windowSize.x - 2.0 - currentPos.x;
-    int lastTick = curTick + (int)ceil(spaceRemaining / (10 * params.timelineZoom));
-    //Add a bit of margin
+
     //Draw horizontal line to right side
     drawlist->AddLine(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y), 0xFF000000);
 
+    int firstTick = params.startTick;
+    int curTick = params.startTick;
+
+    //Account for being between quarter notes:
+    double distanceToFirstQuarter = 0.0;
+    if(int remainder = firstTick % params.PPQ; remainder != 0)
+    {
+        //Round up to next quarter note
+        curTick += (params.PPQ - remainder);
+        distanceToFirstQuarter = (params.PPQ - remainder) * tickWidth;
+        currentPos.x += distanceToFirstQuarter;
+    }
+
+    double spaceRemaining = windowPos.x + windowSize.x - 2.0 - currentPos.x;
+    int lastTick = curTick + (int)ceil(spaceRemaining / tickWidth);
+    int lastMeasure = lastTick / ticksPerMeasure;
+
     //If curTickTenth is divisible by this, draw the currentTick line under the line.
-    const auto numberSize = ImGui::CalcTextSize(std::to_string(lastTick).c_str());
-    int tickNumberVisibleMultiple = (int)ceil(2 * numberSize.x / tickWidth);
+    const auto numberSize = ImGui::CalcTextSize(std::to_string(lastMeasure).c_str());
+    int measureNumberVisibleMultiple = ticksPerMeasure * (int)ceil(2 * numberSize.x / measureWidth);
+    //printf("%d\n", measureNumberVisibleMultiple);
     while(currentPos.x < windowPos.x + windowSize.x - 2) {
         double lineHeight;
-        if(curTick % tickNumberVisibleMultiple == 0){
+        if(curTick % measureNumberVisibleMultiple == 0) {
             lineHeight = 15;
-
-            std::string tickNumberText = std::to_string(curTick);
-            double halfTextWidth = ImGui::CalcTextSize(tickNumberText.c_str()).x / 2.0;
-            drawlist->AddText(ImVec2(currentPos.x - halfTextWidth, windowPos.y + 2), 0xFF000000, tickNumberText.c_str());
+        
+            int curMeasure = curTick / ticksPerMeasure;
+            std::string measureNumberText = std::to_string(curMeasure);
+            double halfTextWidth = ImGui::CalcTextSize(measureNumberText.c_str()).x / 2.0;
+            drawlist->AddText(ImVec2(currentPos.x - halfTextWidth, windowPos.y + 2), 0xFF000000, measureNumberText.c_str());
         }
         else{
             lineHeight = 10;
         }
         drawlist->AddLine(currentPos,ImVec2(currentPos.x, currentPos.y + lineHeight), 0xFF000000, 1.0);
-        currentPos.x += 10 * params.timelineZoom;
-        curTick += 1;
+
+        //Advance by one eigth note
+        currentPos.x += quarterNoteWidth;
+        curTick += params.PPQ;
     }
 
     
@@ -294,17 +299,18 @@ void drawMidiTimeline(MidiTimelineParams &params){
         if(params.startTick <= instance.tickEnd && instance.tickStart <= lastTick){
             double startX = windowPos.x + 5;
             if(instance.tickStart >= params.startTick)
-                startX += (double)(10 * (instance.tickStart - firstTick)) * params.timelineZoom;
+                startX += (double)(tickWidth * (instance.tickStart - firstTick));
 
             double endX = windowPos.x + windowSize.x - 2;
             if(instance.tickStart <= lastTick)
-                endX = windowPos.x + 5 + (double)(10 * (instance.tickEnd - firstTick)) * params.timelineZoom;
+                endX = windowPos.x + 5 + (double)(tickWidth * (instance.tickEnd - firstTick));
             
             auto start = ImVec2(startX, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * instance.channel);
             auto end = ImVec2(endX, start.y + 40.0);
 
             //Draw a rectangle for the instance
             drawlist->AddRectFilled(start, end, 0xFF0000FF, 0.4);
+            drawlist->AddRect(start, end, 0xFF000000, 0.4, 1.5);
 
             bool mouseOverlapsInstanceY = start.y <= mousePos.y && mousePos.y <= end.y;
             bool mouseOverlapsInstanceX = start.x <= mousePos.x && mousePos.x <= end.x;
@@ -459,9 +465,9 @@ void drawMidiTimeline(MidiTimelineParams &params){
     }
 
     //Draw a line indicating current tick.
-    if(firstTick <= params.tick  && params.tick <= lastTick)
+    if(firstTick <= params.playback_tick  && params.playback_tick <= lastTick)
     {
-        currentPos = ImVec2(windowPos.x + 5.0 + (params.tick - firstTick) * 10.0 * params.timelineZoom, windowPos.y + 16.0);
+        currentPos = ImVec2(windowPos.x + 5.0 + (params.playback_tick - firstTick) * tickWidth, windowPos.y + 16.0);
         drawlist->AddLine(currentPos, ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * NUM_CHANNELS), 0xFF00FF00, 3.0);
     }
 }

@@ -5,6 +5,10 @@
 #include <map>
 #include "sound/989snd/midi_handler.h"
 #include "sound/989snd/musicbank.h"
+
+static constexpr int tickrate = 240;
+static constexpr int mics_per_tick = 1000000 / tickrate;
+
 struct SoundInstance{
     int tickStart = 0;
     int tickEnd = 0;
@@ -17,23 +21,29 @@ struct SoundInstance{
 };
 
 struct MidiTimelineParams{
-    int tick = 0;
-    int tempo = 0;
-    int PPQ = 0;
+    int playback_tick = 0;
+    int tempo = 1; //Number of microseconds per quarter note
+    int PPQ = 480; //Number of ticks per quarter note
     float timelineZoom = 1.0;
-    std::vector<SoundInstance> notes = {SoundInstance(10,20,2,0,1), SoundInstance(5,35,0,1,0), SoundInstance(30, 40, 1, 0, 1)};
-    int startTick = 0;
+    std::vector<SoundInstance> notes = {SoundInstance(120,960,2,0,1), SoundInstance(360,540,0,1,0), SoundInstance(600, 840, 1, 0, 0)};
+    int startTick = 0; //MIDI time tick = 
     bool beganClickingTimeline = false;
     SoundInstance *stretchedInstanceLeft = nullptr;
     SoundInstance *stretchedInstanceRight = nullptr;
     SoundInstance *draggedInstance = nullptr;
     int timelineStartBeforeClick = -1;
     std::map<SoundInstance*, std::pair<int,int>> selected;
+
+    void syncWithPlayerTick(int player_tick){
+        int ticks_per_second = PPQ * 1000000 / tempo;
+        playback_tick = (ticks_per_second * player_tick / tickrate); 
+    }
 };
 
 void readMidiData(snd::MusicBank *bank, MidiTimelineParams &params);
 void MidiTimeline(MidiTimelineParams &params);
 void drawMidiTimeline(MidiTimelineParams &params);
 void drawProgs(MidiTimelineParams &params);
+
 //void DrawProgInstances(MidiTimelineParams &params);
 //void DrawSoundRow();
