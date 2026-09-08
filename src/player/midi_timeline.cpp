@@ -19,18 +19,17 @@ void readBank(snd::MusicBank *bank, MidiTimelineParams &params){
 
     //TODO: read multi midi, add a tab for each one...
     if(std::holds_alternative<snd::Midi>(bank->MidiData))
-        readMidiData(bank, params);
-    else if(std::holds_alternative<snd::Midi>(bank->MidiData)){
+        readMidiData(std::get<snd::Midi>(bank->MidiData), params);
+    else if(std::holds_alternative<snd::MultiMidi>(bank->MidiData)){
+        auto multiMidi = std::get<snd::MultiMidi>(bank->MidiData);
+        for(auto& midi : multiMidi.midi){
+            readMidiData(midi, params);
+        }
     }
 }
 
-void readMidiData(snd::MusicBank *bank,  MidiTimelineParams &params){
-    std::vector<SoundInstance> &notes = params.notes.emplace_back();
-
-    //TODO: read multi midi, add a tab for each one...
-    if(!std::holds_alternative<snd::Midi>(bank->MidiData))
-        return;
-    auto &midi = std::get<snd::Midi>(bank->MidiData);
+void readMidiData(snd::Midi &midi,  MidiTimelineParams &params){
+    auto &notes = params.notes.emplace_back();
     u8 *dataStart = midi.DataStart;
     u8 *curData = dataStart;
     u64 time = 0;
@@ -130,25 +129,24 @@ void readMidiData(snd::MusicBank *bank,  MidiTimelineParams &params){
                 if (status_byte == 0xFF) {//META Event means it's time to repeat or something
                     // MetaEvent();
                     // break;
-                    if(firstMeta)
-                        return;
-                    else
+                    size_t len = *(curData + 1);
+                    if(*curData == 0x2f)
+                        return; //Break out before looping
+                    else if(*curData == 0x51)
                     {
-                        size_t len = *(curData + 1);
-                        if(*curData == 0x2f)
-                            return; //Break out before looping
-                        else if(*curData == 0x51)
-                        {
-                            params.tempo = (curData[2] << 16) | (curData[3] << 8) | (curData[4]);
-                            ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
-                        }
-                        curData += len + 2;
-                        firstMeta = 1;
-                        break;
+                        params.tempo = (curData[2] << 16) | (curData[3] << 8) | (curData[4]);
+                        ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
                     }
+                    curData += len + 2;
+                    break;
                 }
                 if (status_byte == 0xF0) {//SYSTEM EVENT means AME handler trying to do something
-                    // SystemEvent();
+
+                    if(*curData == 0x75)
+                        ++curData;
+                        //TODO: stopped by AME.
+                    else
+                        return; //Unknown system event
                     // break;
                     break;
                 }
@@ -160,7 +158,7 @@ void readMidiData(snd::MusicBank *bank,  MidiTimelineParams &params){
                 // return;
             }
         }
-    }while(status_byte != 0xF0);
+    }while(1);
     return;
 }
 
@@ -193,10 +191,11 @@ void drawMidiTimeline(MidiTimelineParams &params){
     bool clickedButton = false;
     //Add a tab for each midi
     if(ImGui::BeginTabBar("MIDIS")) {
-        int midiCt = 0;
-        for(auto notes : params.notes)
+        for(auto it = params.notes.begin(); it != params.notes.end(); ++it)
         {
-            if(ImGui::BeginTabItem(("Midi " + std::to_string(midiCt)).c_str())) { 
+            auto midi_index = std::distance(params.notes.begin(), it);
+            auto &notes = *it;
+            if(ImGui::BeginTabItem(("Midi " + std::to_string(midi_index)).c_str())) { 
                 const auto windowPos = ImGui::GetCursorScreenPos();
                 const auto windowSize = ImGui::GetContentRegionAvail();
                 const auto mousePos = io.MousePos;

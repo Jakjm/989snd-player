@@ -21,6 +21,7 @@ struct SoundInstance{
 };
 
 struct MidiTimelineParams{
+    snd::MusicBank *bank;
     int playback_tick = 0;
     int tempo = 1; //Number of microseconds per quarter note
     int PPQ = 480; //Number of ticks per quarter note
@@ -41,7 +42,7 @@ struct MidiTimelineParams{
 };
 
 void readBank(snd::MusicBank *bank, MidiTimelineParams &params);
-void readMidiData(snd::MusicBank *bank, MidiTimelineParams &params);
+void readMidiData(snd::Midi &midi, MidiTimelineParams &params);
 void MidiTimeline(MidiTimelineParams &params);
 void drawMidiTimeline(MidiTimelineParams &params);
 void drawProgs(MidiTimelineParams &params);
