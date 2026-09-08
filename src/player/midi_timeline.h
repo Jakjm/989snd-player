@@ -25,14 +25,14 @@ struct MidiTimelineParams{
     int tempo = 1; //Number of microseconds per quarter note
     int PPQ = 480; //Number of ticks per quarter note
     float timelineZoom = 1.0;
-    std::vector<SoundInstance> notes = {SoundInstance(120,960,2,0,1), SoundInstance(360,540,0,1,0), SoundInstance(600, 840, 1, 0, 0)};
+    std::vector<std::vector<SoundInstance>> notes = {{SoundInstance(120,960,2,0,1), SoundInstance(360,540,0,1,0), SoundInstance(600, 840, 1, 0, 0)}};
     int startTick = 0; //MIDI time tick = 
     bool beganClickingTimeline = false;
-    SoundInstance *stretchedInstanceLeft = nullptr;
-    SoundInstance *stretchedInstanceRight = nullptr;
-    SoundInstance *draggedInstance = nullptr;
+    int stretchedInstanceLeft = -1;
+    int stretchedInstanceRight = -1;
+    int draggedInstance = -1;
     int timelineStartBeforeClick = -1;
-    std::map<SoundInstance*, std::pair<int,int>> selected;
+    std::map<int, std::pair<int,int>> selected;
 
     void syncWithPlayerTick(int player_tick){
         int ticks_per_second = PPQ * 1000000 / tempo;
@@ -40,6 +40,7 @@ struct MidiTimelineParams{
     }
 };
 
+void readBank(snd::MusicBank *bank, MidiTimelineParams &params);
 void readMidiData(snd::MusicBank *bank, MidiTimelineParams &params);
 void MidiTimeline(MidiTimelineParams &params);
 void drawMidiTimeline(MidiTimelineParams &params);
