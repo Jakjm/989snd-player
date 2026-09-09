@@ -2,6 +2,7 @@
 #include <cmath>
 #include <string>
 #include "tracker_style.h"
+#include "common/util/BinaryReader.h"
 #include "third-party/imgui/imgui.h"
 #include "third-party/imgui/imgui_internal.h"
 #include "fmt/format.h"
@@ -17,6 +18,12 @@ const double TIMELINE_BOX_HEIGHT = 35.0;
 void readBank(snd::MusicBank *bank, MidiTimelineParams &params){
     params.notes.clear();
 
+    for(int i = 0; i < 16; ++i){
+        params.registers[i] = 0;
+        params.macros[i] = nullptr;
+    }
+    params.registers[0] = 1;
+
     //TODO: read multi midi, add a tab for each one...
     if(std::holds_alternative<snd::Midi>(bank->MidiData))
         readMidiData(std::get<snd::Midi>(bank->MidiData), params);
@@ -28,11 +35,181 @@ void readBank(snd::MusicBank *bank, MidiTimelineParams &params){
     }
 }
 
+
+std::pair<bool, u8*> RunAME(UnboundedBinaryReader stream, MidiTimelineParams &params){
+  int skip = 0;
+  bool done = false;
+  bool cont = true;
+
+
+  while (!done) {
+    auto op = stream.read<u8>();
+
+    if(op == 0x4 && skip == 1){
+        skip = 2;
+    }
+    else if(op == 0x5 && skip == 2){
+        skip = 0;
+    }
+    else if(op == 0xB){
+        // fmt::print("ame trace b\n");
+        params.macros[stream.peek<u8>()] = stream.getStart() + stream.get_seek() + 1;
+        while (stream.read<u8>() != 0xf7);
+    }
+    else if(op == 0xF){
+        // fmt::print("ame trace f\n");
+        if (skip) {
+          while (stream.read<u8>() != 0x7f);
+          if (skip == 1)
+            skip = 0;
+        }
+        else {
+            auto group = stream.read<u8>();
+            //m_groups[group].basis =
+            stream.read<u8>();
+            u8 channel = 0;
+            while (stream.peek<u8>() != 0xf7) {
+            //m_groups[group].channel[channel] =
+            stream.read<u8>();
+            //m_groups[group].excite_min[channel] =
+            stream.read<u8>();
+            //m_groups[group].excite_max[channel] =
+            stream.read<u8>();
+            channel++;
+            }
+            //m_groups[group].num_channels = channel;
+            stream.ffwd(1); //Skip past f7
+        }
+    }
+    else{
+        if (skip == 1)
+            skip = -1;
+
+        if (op == 0x0 && snd::GlobalExcite <= (stream.read<u8>() + 1) && skip == 0)
+            skip = 1;
+        else if (op == 0x1 && snd::GlobalExcite != (stream.read<u8>() + 1) && skip == 0)
+            skip = 1;
+        else if (op == 0x2 && snd::GlobalExcite > (stream.read<u8>() + 1) && skip == 0)
+            skip = 1;
+        else if (op == 0x3)
+        {
+            u8 midiNum = stream.read<u8>();
+            //TODO: if(skip == 1), stop midiNum
+        }
+        else if (op == 0x6 && params.registers[stream.read<u8>()] > (stream.read<u8>() - 1) && skip == 0)
+            skip = 1;
+        else if (op == 0x7 && params.registers[stream.read<u8>()] < (stream.read<u8>() + 1) && skip == 0)
+            skip = 1;
+        else if (op == 0xC)
+        {
+            int index = stream.read<u8>();
+            u8 *dataIndex = params.macros[index];
+            if (skip == 0 && !RunAME(UnboundedBinaryReader(params.macros[index]),params).first) {
+                cont = false;
+                done = true;
+            }
+        }
+        else if (op == 0xD && skip == 0)
+        {
+            auto reg = stream.read<u8>();
+            if(skip == 0)
+            {
+                cont = false;
+                done = true;
+                //TODO: StartSegment(registers[reg] - 1);
+            }
+        }
+        else if (op == 0xE)
+        {
+            auto reg = stream.read<u8>();
+            if(skip == 0);
+            //TODO: StartSegment(registers[reg] - 1);
+        }
+        else if (op == 0x10)
+        {
+            stream.read<u8>();
+            // u8 group = stream[0];
+            // u8 comp = 0;
+            // if (m_groups[group].basis == 0) {
+            //     comp = GlobalExcite;
+            // } else {
+            //     comp = m_register[m_groups[group].basis - 1];
+            // }
+            // // fmt::print("group: {} basis: {} excite: {}\n", group, m_groups[group].basis, comp);
+            // for (int i = 0; i < m_groups[group].num_channels; i++) {
+            //     // auto xmin = m_groups[group].excite_min[i];
+            //     // auto xmax = m_groups[group].excite_max[i];
+            //     // fmt::print("chan {} excite: {}-{}\n", i, xmin, xmax);
+
+            //     // note : added hack here! :-)
+            //     if (!SoundFlavaHack &&
+            //         (comp < m_groups[group].excite_min[i] || comp > m_groups[group].excite_max[i])) {
+            //         midi.MuteChannel(m_groups[group].channel[i]);
+            //     } else {
+            //         midi.UnmuteChannel(m_groups[group].channel[i]);
+            //     }
+            // }
+        }
+        else if(op == 0x11){
+            auto midi = stream.read<u8>();
+            if(skip == 0){
+                done = true;
+                cont = false;
+                //TODO start midi
+            }
+        }
+        else if(op == 0x12){
+            auto midi = stream.read<u8>();
+            if(skip == 0);
+                //TODO start midi
+        }
+        else if (op == 0x13) {
+            u8 reg = stream.read<u8>();
+            u8 val = stream.read<u8>();
+            if(skip == 0)
+                params.registers[reg] = val;
+        }
+        else if (op == 0x14) {
+            u8 reg = stream.read<u8>();
+            if (skip == 0 && params.registers[reg] < 0x7f)
+                params.registers[reg]++;
+        }
+        else if (op == 0x15) {
+            u8 reg = stream.read<u8>();
+            if (skip == 0 && params.registers[reg] > 0)
+                params.registers[reg]--;
+        }
+        else if (op == 0x16) {
+            u8 reg = stream.read<u8>();
+            u8 val = stream.read<u8>();
+            if (skip == 0 && params.registers[reg] != val)
+                skip = 1;
+        }
+        else if(op > 0x16){
+            //throw AMEError(fmt::format("Unhandled AME event {:02x}", (u8)op));
+            break;
+        }
+
+        if(skip < 0)
+            skip = 0;
+    } ;
+
+    if (stream.peek<u8>() == 0xf7) {
+        stream.ffwd(1);
+        done = true;
+    }
+  }
+
+  return {cont, stream.getStart() + stream.get_seek()};
+}
+
 void readMidiData(snd::Midi &midi,  MidiTimelineParams &params){
     auto &notes = params.notes.emplace_back();
     u8 *dataStart = midi.DataStart;
-    u8 *curData = dataStart;
+    UnboundedBinaryReader reader(dataStart);
+    //u8 *curData = dataStart;
     u64 time = 0;
+    int cont_ct = 5;
 
     std::array<std::map<int,int>,NUM_CHANNELS> channel_notes;
     std::array<int,NUM_CHANNELS> channel_programs;
@@ -41,47 +218,43 @@ void readMidiData(snd::Midi &midi,  MidiTimelineParams &params){
 
     params.tempo = midi.Tempo; //micros per quarter note
     params.PPQ = midi.PPQ;
-    u64 ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
-    u64 tickDelta = 0, tickError = 0, tickCountdown;
+    //u64 ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
+    //u64 tickDelta = 0, tickError = 0, tickCountdown;
     u8 status_byte;
     do{
-        auto [len, delta] = snd::MidiHandler::ReadVLQ(curData);
-        curData += len;
+        auto [len, delta] = snd::MidiHandler::ReadVLQ(dataStart + reader.get_seek());
+        reader.ffwd(len);
         time += delta;
 
-        tickDelta = 100 * delta + tickError;
-        if (tickDelta < 0 || tickDelta < ppt / 2) {
-            tickError = tickDelta;
-            tickDelta = 0;
-        }
-        if (tickCountdown != 0) {
-            tickCountdown = (tickDelta / 100 * midi.Tempo / midi.PPQ - 1 + mics_per_tick) / mics_per_tick;
-            tickError = tickDelta - ppt * tickCountdown;
-        }
+        //No need to handle time stuff here lol
+        // tickDelta = 100 * delta + tickError;
+        // if (tickDelta < 0 || tickDelta < ppt / 2) {
+        //     tickError = tickDelta;
+        //     tickDelta = 0;
+        // }
+        // if (tickCountdown != 0) {
+        //     tickCountdown = (tickDelta / 100 * midi.Tempo / midi.PPQ - 1 + mics_per_tick) / mics_per_tick;
+        //     tickError = tickDelta - ppt * tickCountdown;
+        // }
 
-        if(*curData & 0x80)
+        if(reader.peek<u8>() & 0x80)
         {
-            status_byte = *curData;
-            ++curData;
+            status_byte = reader.read<u8>();
         }
 
         //assert(status_byte & 0x80);
-        int firstMeta = 0;
         switch(status_byte >> 4){
             case 0x9:
             {
                 //NoteON
-                //break;
-                //break;
-                u8 channel = status_byte & 0xF;
-                u8 note = *curData;
-                u8 velocity = *(curData + 1);
-                u8 program = channel_programs[channel];
-                
-                //If velocity is non-zero, fall through to note-off
-                if(velocity != 0)
+                //If velocity is zero, fall through to note-off case
+                if(reader.peek<u8>(1) != 0)
                 {
-                    curData += 2; 
+                    u8 channel = status_byte & 0xF;
+                    u8 note = reader.read<u8>();
+                    u8 velocity = reader.read<u8>();
+                    u8 program = channel_programs[channel];
+
                     notes.emplace_back(time,-1,program,note,channel);
                     channel_notes[channel][note] = notes.size() - 1;
                     break;
@@ -92,35 +265,33 @@ void readMidiData(snd::Midi &midi,  MidiTimelineParams &params){
                 //NoteOFF
                 //assert(channel_notes[channel] != nullptr);
                 u8 channel = status_byte & 0xF;
-                u8 note = *curData;
-
+                u8 note = reader.read<u8>();
+                u8 velocity = reader.read<u8>();
                 notes[channel_notes[channel][note]].tickEnd = time;
                 channel_notes[channel][note] = -1;
-                curData += 2;
                 break;
             }
             case 0xB:
-                curData += 2;
+                reader.ffwd(2);
                 break;
                 //ControllerChange();
                 //break;
             case 0xD:
                 //TODO: actually do stuff
-                ++curData;
+                reader.ffwd(1);
                 break;
                 //ChannelPressure();
                 //break;
             case 0xC:
             {
                 u8 channel = status_byte & 0xf;
-                u8 program = *curData;
+                u8 program = reader.read<u8>();
 
                 channel_programs[channel] = program;
-                ++curData;
                 break;
             }
             case 0xE:
-                curData += 2;
+                reader.ffwd(2);
                 break;
                 //ChannelPitch();
                 //break;
@@ -129,21 +300,27 @@ void readMidiData(snd::Midi &midi,  MidiTimelineParams &params){
                 if (status_byte == 0xFF) {//META Event means it's time to repeat or something
                     // MetaEvent();
                     // break;
-                    size_t len = *(curData + 1);
-                    if(*curData == 0x2f)
-                        return; //Break out before looping
-                    else if(*curData == 0x51)
+                    u8 eventType = reader.read<u8>();
+                    size_t len =  reader.read<u8>();
+                    if(eventType == 0x2f)
                     {
-                        params.tempo = (curData[2] << 16) | (curData[3] << 8) | (curData[4]);
-                        ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
+                        return; //Break out before looping
                     }
-                    curData += len + 2;
+                    else if(eventType == 0x51)
+                    {
+                        params.tempo = (reader.peek<u8>() << 16) | (reader.peek<u8>(1) << 8) | reader.peek<u8>(2);
+                        //ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
+                    }
+                    reader.ffwd(len);
                     break;
                 }
                 if (status_byte == 0xF0) {//SYSTEM EVENT means AME handler trying to do something
 
-                    if(*curData == 0x75)
-                        ++curData;
+                    if(reader.read<u8>() == 0x75)
+                    {
+                        auto [cont, ptr] = RunAME(reader, params);
+                        reader.set_seek(ptr - dataStart);
+                    }
                         //TODO: stopped by AME.
                     else
                         return; //Unknown system event

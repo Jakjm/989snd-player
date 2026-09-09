@@ -20,11 +20,15 @@ struct SoundInstance{
     }
 };
 
+
+
 struct MidiTimelineParams{
     snd::MusicBank *bank;
     int playback_tick = 0;
     int tempo = 1; //Number of microseconds per quarter note
     int PPQ = 480; //Number of ticks per quarter note
+    u8 registers[16];
+    u8 *macros[16];
     float timelineZoom = 1.0;
     std::vector<std::vector<SoundInstance>> notes = {{SoundInstance(120,960,2,0,1), SoundInstance(360,540,0,1,0), SoundInstance(600, 840, 1, 0, 0)}};
     int startTick = 0; //MIDI time tick = 
