@@ -4,7 +4,8 @@
 #include <iterator>
 #include <string>
 #include <variant>
-
+#include <algorithm>
+#include <iostream>
 #include "tracker_style.h"
 
 #include "common/util/BinaryReader.h"
@@ -15,10 +16,12 @@
 #include "third-party/imgui/imgui.h"
 #include "third-party/imgui/imgui_internal.h"
 
-const double ZOOM_MAX = 16;
-const double ZOOM_MIN = 1.0 / 8000.0;
+const double ZOOM_MAX = 64;
+const double ZOOM_MIN = 1.0 / ZOOM_MAX;
 const int NUM_CHANNELS = 16;
 const double TIMELINE_BOX_HEIGHT = 35.0;
+const double CHANNEL_HEIGHT = 50.0;
+const double NOTE_HEIGHT = 16.6;
 
 void readBank(snd::MusicBank* bank, MidiTimelineParams& params) {
   params.notes.clear();
@@ -35,16 +38,14 @@ void readBank(snd::MusicBank* bank, MidiTimelineParams& params) {
     params.registers[i] = 0;
     params.macros[i] = nullptr;
   }
-  // params.registers[0] = 1;
 
-  // TODO: read multi midi, add a tab for each one...
   if (std::holds_alternative<snd::Midi>(bank->MidiData))
     readMidiData(std::get<snd::Midi>(bank->MidiData), params);
   else if (std::holds_alternative<snd::MultiMidi>(bank->MidiData)) {
     auto multiMidi = std::get<snd::MultiMidi>(bank->MidiData);
     int midi_ct = 0;
     for (auto& midi : multiMidi.midi) {
-      printf("Midi: %d\n", midi_ct);
+      //printf("Midi: %d\n", midi_ct);
       readMidiData(midi, params);
       ++midi_ct;
     }
@@ -249,7 +250,7 @@ void readMidiData(snd::Midi& midi, MidiTimelineParams& params) {
           u8 note = reader.read<u8>();
           u8 velocity = reader.read<u8>();
           u8 program = channel_programs[channel];
-          printf("Note start at %ld %d %d %d %d\n",time, channel, note, velocity, program);
+          //printf("Note start at %ld %d %d %d %d\n",time, channel, note, velocity, program);
 
           notes.emplace_back(time, -1, program, note, channel);
           channel_notes[channel].insert({note, notes.size() - 1});
@@ -462,9 +463,9 @@ bool handleInstanceSelection(MidiTimelineParams& params,
   // Check if potentially able to stretch or drag instance
   // Can stretch left
   if (params.stretchedInstanceLeft == index || mouseOverlapsInstanceStart) {
-    ImGui::GetWindowDrawList()->AddTriangleFilled(
-        ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0),
-        ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
+    ImGui::GetWindowDrawList()->AddTriangleFilled(ImVec2(start.x + 2, start.y + NOTE_HEIGHT / 2.0),
+                                                  ImVec2(start.x + 8.0, start.y + NOTE_HEIGHT / 2.0 + 4),
+                                                  ImVec2(start.x + 8.0, start.y + NOTE_HEIGHT / 2.0 - 4), 0xFF000000);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstanceStart) {
       clickedButton = true;
       ImGui::GetWindowDrawList()->AddTriangleFilled(
@@ -483,9 +484,9 @@ bool handleInstanceSelection(MidiTimelineParams& params,
   }
   // Can stretch right
   else if (params.stretchedInstanceRight == index || mouseOverlapsInstanceEnd) {
-    ImGui::GetWindowDrawList()->AddTriangleFilled(ImVec2(end.x - 2, start.y + 20.0),
-                                                  ImVec2(end.x - 12.0, start.y + 14.0),
-                                                  ImVec2(end.x - 12.0, start.y + 26.0), 0xFF000000);
+    ImGui::GetWindowDrawList()->AddTriangleFilled(ImVec2(end.x - 2, start.y + NOTE_HEIGHT / 2.0),
+                                                  ImVec2(end.x - 8.0, start.y + NOTE_HEIGHT / 2.0 + 4),
+                                                  ImVec2(end.x - 8.0, start.y + NOTE_HEIGHT / 2.0 - 4), 0xFF000000);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstanceEnd) {
       clickedButton = true;
       params.stretchedInstanceLeft = -1;
@@ -501,12 +502,12 @@ bool handleInstanceSelection(MidiTimelineParams& params,
   }
   // Can drag
   else if (params.selected.contains(index) || mouseOverlapsInstance) {
-    ImGui::GetWindowDrawList()->AddTriangle(ImVec2(start.x + 2, start.y + 20.0),
-                                            ImVec2(start.x + 12.0, start.y + 14.0),
-                                            ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
-    ImGui::GetWindowDrawList()->AddTriangle(ImVec2(end.x - 2, start.y + 20.0),
-                                            ImVec2(end.x - 12.0, start.y + 14.0),
-                                            ImVec2(end.x - 12.0, start.y + 26.0), 0xFF000000);
+    ImGui::GetWindowDrawList()->AddTriangle(ImVec2(start.x + 2, start.y + NOTE_HEIGHT / 2.0),
+                                            ImVec2(start.x + 8.0, start.y + NOTE_HEIGHT / 2.0 + 4),
+                                            ImVec2(start.x + 8.0, start.y + NOTE_HEIGHT / 2.0 - 4), 0xFF000000);
+    ImGui::GetWindowDrawList()->AddTriangle(ImVec2(end.x - 2, start.y + NOTE_HEIGHT / 2.0),
+                                            ImVec2(end.x - 8.0, start.y + NOTE_HEIGHT / 2.0 + 4),
+                                            ImVec2(end.x - 8.0, start.y + NOTE_HEIGHT / 2.0 - 4), 0xFF000000);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstance) {
       clickedButton = true;
       params.stretchedInstanceLeft = -1;
@@ -530,7 +531,7 @@ bool handleInstanceSelection(MidiTimelineParams& params,
       std::string selectionNumberText = "(" + std::to_string(index) + ")";
       auto textSize = ImGui::CalcTextSize(selectionNumberText.c_str());
       ImGui::GetWindowDrawList()->AddText(
-          ImVec2(start.x + (end.x - start.x - textSize.x) / 2.0, start.y + 20.0 - textSize.y / 2.0),
+          ImVec2(start.x + (end.x - start.x - textSize.x) / 2.0, start.y + (NOTE_HEIGHT - textSize.y) / 2.0),
           0xFF000000, selectionNumberText.c_str());
     }
   }
@@ -538,6 +539,7 @@ bool handleInstanceSelection(MidiTimelineParams& params,
 }
 
 void drawMidiTimeline(MidiTimelineParams& params) {
+  int maxConcurrent = 0;
   const auto topline =
       fmt::format("Tempo (micros per quarter note): {} PPQ: {}", params.tempo, params.PPQ);
   ImGui::Text(topline.c_str());
@@ -564,11 +566,13 @@ void drawMidiTimeline(MidiTimelineParams& params) {
     for (auto it = params.notes.begin(); it != params.notes.end(); ++it) {
       auto midi_index = std::distance(params.notes.begin(), it);
       auto& notes = *it;
+
       if (ImGui::BeginTabItem(("Midi " + std::to_string(midi_index)).c_str())) {
         if (params.tabSelected != midi_index) {
           params.selected.clear();
           params.tabSelected = midi_index;
         }
+        
         const auto windowPos = ImGui::GetCursorScreenPos();
         const auto windowSize = ImGui::GetContentRegionAvail();
         const auto mousePos = io.MousePos;
@@ -608,6 +612,8 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         int lastTick = curTick + (int)ceil(spaceRemaining / tickWidth);
         int lastMeasure = lastTick / ticksPerMeasure;
 
+        //Map of depth to note ending of unfinished notes for each channel.
+        std::array<std::map<int, int>, NUM_CHANNELS> unfinishedNotes;
         for (auto iter = notes.begin(); iter != notes.end(); ++iter) {
           int index = std::distance(notes.begin(), iter);
           auto& instance = *iter;
@@ -621,9 +627,28 @@ void drawMidiTimeline(MidiTimelineParams& params) {
             if (instance.tickEnd <= lastTick)
               endX = windowPos.x + 5 + tickWidth * (double)(instance.tickEnd - firstTick);
 
-            auto start = ImVec2(startX, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * instance.channel);
-            auto end = ImVec2(endX, start.y + 40.0);
 
+            int depth = 0;
+            auto it = unfinishedNotes[instance.channel].begin();
+            while(it != unfinishedNotes[instance.channel].end())
+            {
+              if(const auto &otherInstanceEnd = it->second; otherInstanceEnd <= instance.tickStart){
+                it = unfinishedNotes[instance.channel].erase(it);
+              }
+              else {
+                if(const auto &otherDepth = it->first; otherDepth == depth){
+                  ++depth;
+                }
+                ++it;
+              }
+            }
+            auto start = ImVec2(startX, windowPos.y + TIMELINE_BOX_HEIGHT + CHANNEL_HEIGHT * instance.channel + depth * NOTE_HEIGHT);
+            auto end = ImVec2(endX, start.y + NOTE_HEIGHT);
+            
+            unfinishedNotes[instance.channel].insert({depth, instance.tickEnd});
+            if(unfinishedNotes.size() > maxConcurrent)
+              maxConcurrent = unfinishedNotes.size();
+            
             // Draw a rectangle for the instance
             drawlist->AddRectFilled(start, end, 0xFF0000FF, 0.4);
             drawlist->AddRect(start, end, 0xFF000000, 0.4, 1.5);
@@ -637,17 +662,17 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         auto currentPos = ImVec2(windowPos.x + 5, windowPos.y + TIMELINE_BOX_HEIGHT);
 
         for (int channel = 0; channel < NUM_CHANNELS; ++channel) {
-          drawlist->AddRect(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y + 41),
+          drawlist->AddRect(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y + (CHANNEL_HEIGHT + 1.0)),
                             0xFF000000, 0.2);
 
           const auto channelText = std::string("Channel ") + std::to_string(channel);
           const auto textSize = ImGui::CalcTextSize(channelText.c_str());
 
           drawlist->AddText(ImVec2(windowPos.x + 5 + (windowSize.x - textSize.x) / 2.0,
-                                   currentPos.y + 20 - textSize.y / 2.0),
+                                   currentPos.y + (CHANNEL_HEIGHT - textSize.y) / 2.0),
                             0x77000000, channelText.c_str());
 
-          currentPos.y += 40;
+          currentPos.y += CHANNEL_HEIGHT;
         }
 
         // Timeline drawing code:
@@ -687,7 +712,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
           }
           drawlist->AddLine(currentPos, ImVec2(currentPos.x, currentPos.y + lineHeight), 0xFF000000,
                             1.0);
-          drawlist->AddLine(currentPos, ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * NUM_CHANNELS), 0x77000000, 1.0);
+          drawlist->AddLine(currentPos, ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + CHANNEL_HEIGHT * NUM_CHANNELS), 0x77000000, 1.0);
           // Advance by one eigth note
           currentPos.x += quarterNoteWidth;
           curTick += params.PPQ;
@@ -700,6 +725,10 @@ void drawMidiTimeline(MidiTimelineParams& params) {
             (params.stretchedInstanceRight == -1) && (params.draggedInstance == -1) &&
             !params.beganClickingTimeline && !clickedButton && !clickedProperties) {
           params.selected.clear();
+
+          std::sort(notes.begin(), notes.end(), [](const NoteInstance &first, const NoteInstance &second){
+            return first.tickStart < second.tickStart; 
+          });
         }
 
         // Draw faint vertical lines indicating quarter notes 
@@ -711,7 +740,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
                               windowPos.y + 16.0);
           drawlist->AddLine(
               currentPos,
-              ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + 40 * NUM_CHANNELS),
+              ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + CHANNEL_HEIGHT * NUM_CHANNELS),
               0xFF00FF00, 3.0);
         }
         ImGui::EndTabItem();
@@ -719,6 +748,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
     }
     ImGui::EndTabBar();
   }
+  //printf("%d\n", maxConcurrent);
 }
 
 void MidiTimeline(MidiTimelineParams& params) {
