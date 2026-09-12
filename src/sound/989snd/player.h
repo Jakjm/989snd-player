@@ -65,6 +65,7 @@ class Player {
   void DestroyCubeb();
   s32 GetTick() { return mTick; };
   void StopAllSounds();
+  VoiceManager *getVManager();
 
   // Copy the most recent `count` mono samples of real synth output into `out`
   // (normalized to [-1, 1]), oldest first. Used by the GUI oscilloscope so it

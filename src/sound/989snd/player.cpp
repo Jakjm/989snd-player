@@ -7,6 +7,7 @@
 #include "sfxblock.h"
 
 #include "fmt/format.h"
+#include "sound/989snd/vagvoice.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -418,6 +419,10 @@ void Player::StopAllSounds() {
     mHandleAllocator.FreeId(it->first);
     it = mHandlers.erase(it);
   }
+}
+
+VoiceManager *Player::getVManager(){
+  return &mVmanager;
 }
 
 s32 Player::GetSoundUserData(BankHandle block_handle,

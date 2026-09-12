@@ -252,7 +252,7 @@ void readMidiData(snd::Midi& midi, MidiTimelineParams& params) {
           u8 program = channel_programs[channel];
           //printf("Note start at %ld %d %d %d %d\n",time, channel, note, velocity, program);
 
-          notes.emplace_back(time, -1, program, note, channel);
+          notes.emplace_back(time, -1, velocity, program, note, channel);
           channel_notes[channel].insert({note, notes.size() - 1});
           break;
         }
@@ -387,6 +387,9 @@ bool drawSelectedProperties(MidiTimelineParams& params,
           ImGui::SliderInt("Program", &instance.program, 0, NUM_CHANNELS);
           ImGui::SetNextItemWidth(150.0);
           ImGui::SliderInt("Note", &instance.note, 0, NUM_CHANNELS);
+          if(ImGui::Button("Play",ImVec2(40,16))){
+            instance.playNote(params.bank, &params.bank->Sounds[0], params.manager);
+          }
           ImGui::EndTabItem();
         }
         ++index;
@@ -747,6 +750,11 @@ void drawMidiTimeline(MidiTimelineParams& params) {
       }
     }
     ImGui::EndTabBar();
+  }
+  for(auto &v : params.notes){
+    for(auto &note : v){
+      note.update(params.playback_tick);
+    }
   }
   //printf("%d\n", maxConcurrent);
 }

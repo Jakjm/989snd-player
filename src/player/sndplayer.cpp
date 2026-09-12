@@ -988,6 +988,7 @@ void SndPlayer::draw_active_panel() {
 
     if(m_selected_bank != -1 && m_midi_timeline_params.bank != (snd::MusicBank*)m_banks[m_selected_bank].bank){
       readBank((snd::MusicBank*)m_banks[m_selected_bank].bank, m_midi_timeline_params);
+      m_midi_timeline_params.manager = m_player.getVManager();
       m_midi_timeline_params.bank = (snd::MusicBank*)m_banks[m_selected_bank].bank;
     }
     if(m_active.size() > 0 && m_selected_active != -1)
