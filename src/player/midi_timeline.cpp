@@ -387,8 +387,9 @@ bool drawSelectedProperties(MidiTimelineParams& params,
           ImGui::SliderInt("Program", &instance.program, 0, NUM_CHANNELS);
           ImGui::SetNextItemWidth(150.0);
           ImGui::SliderInt("Note", &instance.note, 0, NUM_CHANNELS);
-          if(ImGui::Button("Play",ImVec2(40,16))){
+          if(ImGui::Button("Play")){
             instance.playNote(params.bank, &params.bank->Sounds[0], params.manager);
+            instance.voice_started_time = params.time;
           }
           ImGui::EndTabItem();
         }
@@ -753,13 +754,14 @@ void drawMidiTimeline(MidiTimelineParams& params) {
   }
   for(auto &v : params.notes){
     for(auto &note : v){
-      note.update(params.playback_tick);
+      note.update(params.time, params.tempo, params.PPQ);
     }
   }
   //printf("%d\n", maxConcurrent);
 }
 
-void MidiTimeline(MidiTimelineParams& params) {
+void MidiTimeline(MidiTimelineParams& params, double time) {
+  params.updateTime(time);
   ImGui::PushStyleColor(ImGuiCol_ChildBg, tracker::CREAM);
   ImGui::BeginChild("miditimeline");
 

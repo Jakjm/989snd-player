@@ -23,7 +23,7 @@ struct NoteInstance {
   int channel = 0;
 
   std::shared_ptr<snd::midi_voice> voice;
-  int voice_started_tick;
+  double voice_started_time;
   NoteInstance(int tickStart, int tickEnd, int velocity, int program, int note, int channel)
       : tickStart(tickStart), tickEnd(tickEnd), velocity(velocity), program(program), note(note), channel(channel) {}
 
@@ -59,17 +59,19 @@ struct NoteInstance {
       //m_voices.emplace_front(voice);
     }
   }
-  void update(int curTick){
-    if(curTick - this->voice_started_tick > this->tickEnd - this->tickStart){
-      endNote();
+  void update(double time, int tempo, int PPQ){
+    if(voice)
+    {
+      double ticksElapsed = ((time - this->voice_started_time) * (double)PPQ * 1000000.0) / (double)tempo;
+      if(ticksElapsed > this->tickEnd - this->tickStart){
+        endNote();
+      }
     }
   }
   void endNote(){
     if(voice)
     {
-      if (voice->channel == channel && voice->note == note) {
-        voice->KeyOff();
-      }
+      voice->KeyOff();
       voice = nullptr;
     }
   }
@@ -78,6 +80,7 @@ struct NoteInstance {
   struct MidiTimelineParams {
     snd::MusicBank* bank;
     snd::VoiceManager* manager;
+    double time;
     int playback_tick = 0;
     int tempo = 500000;  // Number of microseconds per quarter note
     int PPQ = 480;       // Number of ticks per quarter note
@@ -88,7 +91,7 @@ struct NoteInstance {
                                                      NoteInstance(600, 840, 1, 1, 0, 0)}};
 
     float timelineZoom = 1.0;
-    int startTick = 0;  // MIDI time tick =
+    int startTick = 0;  //The tick at which the timeline starts
     bool beganClickingTimeline = false;
     int stretchedInstanceLeft = -1;
     int stretchedInstanceRight = -1;
@@ -97,15 +100,19 @@ struct NoteInstance {
     int tabSelected = -1;
     std::map<int, std::pair<int, int>> selected;
 
-    void syncWithPlayerTick(int player_tick) {
+    void updateTime(double time){
+      this->time = time;
+    }
+
+    void syncWithPlayerPlaybackTicks(int player_playback_ticks) {
       int ticks_per_second = PPQ * 1000000 / tempo;
-      playback_tick = (ticks_per_second * player_tick / tickrate);
+      playback_tick = (ticks_per_second * player_playback_ticks / tickrate);
     }
   };
 
   void readBank(snd::MusicBank* bank, MidiTimelineParams& params);
   void readMidiData(snd::Midi& midi, MidiTimelineParams& params);
-  void MidiTimeline(MidiTimelineParams& params);
+  void MidiTimeline(MidiTimelineParams& params, double time);
   void drawMidiTimeline(MidiTimelineParams& params);
   void drawProgs(MidiTimelineParams& params);
 
