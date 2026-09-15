@@ -5,7 +5,6 @@
 #include <string>
 #include <variant>
 #include <algorithm>
-#include <iostream>
 #include "tracker_style.h"
 
 #include "common/util/BinaryReader.h"
@@ -214,7 +213,7 @@ void readMidiData(snd::Midi& midi, MidiTimelineParams& params) {
   for (int i = 0; i < NUM_CHANNELS; ++i)
     channel_programs[i] = -1;
 
-  params.tempo = midi.Tempo;  // micros per quarter note
+  params.tempo = midi.Tempo;  // micros per squarter note
   params.PPQ = midi.PPQ;
   // u64 ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
   // u64 tickDelta = 0, tickError = 0, tickCountdown;
@@ -371,7 +370,6 @@ bool drawSelectedProperties(MidiTimelineParams& params,
 
     const auto windowPos = ImGui::GetCursorScreenPos();
     const auto windowSize = ImGui::GetContentRegionAvail();
-
     if (ImGui::BeginTabBar("Note Selections")) {
       int index = 0;
       for (auto iter : params.selected) {
@@ -386,10 +384,24 @@ bool drawSelectedProperties(MidiTimelineParams& params,
           ImGui::SetNextItemWidth(150.0);
           ImGui::SliderInt("Program", &instance.program, 0, NUM_CHANNELS);
           ImGui::SetNextItemWidth(150.0);
-          ImGui::SliderInt("Note", &instance.note, 0, NUM_CHANNELS);
+          ImGui::SliderInt("Note", &instance.note, 0, 127);
           if(ImGui::Button("Play")){
             instance.playNote(params.bank, &params.bank->Sounds[0], params.manager);
             instance.voice_started_time = params.time;
+          }
+          if(params.selected.size() > 1 && params.notePlaybackQueue.empty() && ImGui::Button("Play All")){
+            for(auto noteIt : params.selected){
+              auto index = noteIt.first;
+              auto noteStart = noteIt.second.first;
+              auto noteStartSeconds = (double)noteStart * (double)params.tempo  / (1000000.0 * (double)params.PPQ);
+              params.notePlaybackQueue.push_back({noteStartSeconds,noteIt.first}); 
+            }
+            std::sort(params.notePlaybackQueue.begin(), params.notePlaybackQueue.end(), [](std::pair<double,int> pairOne, std::pair<double,int> pairTwo){
+              return pairOne.first < pairTwo.first;
+            });
+            for(auto revIt = params.notePlaybackQueue.rbegin(); revIt != params.notePlaybackQueue.rend(); ++revIt){
+              revIt->first = revIt->first + params.time - params.notePlaybackQueue.begin()->first;
+            }
           }
           ImGui::EndTabItem();
         }
@@ -735,9 +747,6 @@ void drawMidiTimeline(MidiTimelineParams& params) {
           });
         }
 
-        // Draw faint vertical lines indicating quarter notes 
-        
-
         // Draw a vertical line indicating current tick.
         if (firstTick <= params.playback_tick && params.playback_tick <= lastTick) {
           currentPos = ImVec2(windowPos.x + 5.0 + (params.playback_tick - firstTick) * tickWidth,
@@ -747,6 +756,19 @@ void drawMidiTimeline(MidiTimelineParams& params) {
               ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + CHANNEL_HEIGHT * NUM_CHANNELS),
               0xFF00FF00, 3.0);
         }
+        auto noteIter = params.notePlaybackQueue.begin();
+        while(noteIter != params.notePlaybackQueue.end()){
+          if(params.time >= noteIter->first){
+            auto& note = notes[noteIter->second];
+            note.playNote(params.bank, &params.bank->Sounds[0], params.manager);
+            note.voice_started_time = params.time;
+            noteIter = params.notePlaybackQueue.erase(noteIter);
+          }
+          else{
+            ++noteIter;
+          }
+        }
+
         ImGui::EndTabItem();
       }
     }
@@ -757,6 +779,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
       note.update(params.time, params.tempo, params.PPQ);
     }
   }
+
   //printf("%d\n", maxConcurrent);
 }
 

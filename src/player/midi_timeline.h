@@ -99,6 +99,7 @@ struct NoteInstance {
     int timelineStartBeforeClick = -1;
     int tabSelected = -1;
     std::map<int, std::pair<int, int>> selected;
+    std::vector<std::pair<double,int>> notePlaybackQueue;
 
     void updateTime(double time){
       this->time = time;
