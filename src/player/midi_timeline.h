@@ -77,45 +77,51 @@ struct NoteInstance {
   }
 };
 
-  struct MidiTimelineParams {
-    snd::MusicBank* bank;
-    snd::VoiceManager* manager;
-    double time;
-    int playback_tick = 0;
-    int tempo = 500000;  // Number of microseconds per quarter note
-    int PPQ = 480;       // Number of ticks per quarter note
-    u8 registers[16];
-    u8* macros[16];
-    std::vector<std::vector<NoteInstance>> notes = {{NoteInstance(120, 960, 1, 2, 0, 1),
-                                                     NoteInstance(360, 540, 1, 0, 1, 0),
-                                                     NoteInstance(600, 840, 1, 1, 0, 0)}};
+enum DRAG_TYPE{
+  NOT_DRAGGING = -1,
+  Dragging = 0,
+  StetchingRight = 1,
+  StretchingLeft = 2,
+};
 
-    float timelineZoom = 1.0;
-    int startTick = 0;  //The tick at which the timeline starts
-    bool beganClickingTimeline = false;
-    int stretchedInstanceLeft = -1;
-    int stretchedInstanceRight = -1;
-    int draggedInstance = -1;
-    int timelineStartBeforeClick = -1;
-    int tabSelected = -1;
-    std::map<int, std::pair<int, int>> selected;
-    std::vector<std::pair<double,int>> notePlaybackQueue;
+struct MidiTimelineParams {
+  snd::MusicBank* bank;
+  snd::VoiceManager* manager;
+  double time;
+  int playback_tick = 0;
+  int tempo = 500000;  // Number of microseconds per quarter note
+  int PPQ = 480;       // Number of ticks per quarter note
+  u8 registers[16];
+  u8* macros[16];
+  std::vector<std::vector<NoteInstance>> notes = {{NoteInstance(120, 960, 1, 2, 0, 1),
+                                                    NoteInstance(360, 540, 1, 0, 1, 0),
+                                                    NoteInstance(600, 840, 1, 1, 0, 0)}};
 
-    void updateTime(double time){
-      this->time = time;
-    }
+  float timelineZoom = 1.0;
+  int startTick = 0;  //The tick at which the timeline starts
+  bool beganClickingTimeline = false;
+  double windowHeight = 0.0;
+  DRAG_TYPE dragType = NOT_DRAGGING;
+  int timelineStartBeforeClick = -1;
+  int tabSelected = -1;
+  std::map<int, std::pair<int, int>> selected;
+  std::vector<std::pair<double,int>> notePlaybackQueue;
 
-    void syncWithPlayerPlaybackTicks(int player_playback_ticks) {
-      int ticks_per_second = PPQ * 1000000 / tempo;
-      playback_tick = (ticks_per_second * player_playback_ticks / tickrate);
-    }
-  };
+  void updateTime(double time){
+    this->time = time;
+  }
 
-  void readBank(snd::MusicBank* bank, MidiTimelineParams& params);
-  void readMidiData(snd::Midi& midi, MidiTimelineParams& params);
-  void MidiTimeline(MidiTimelineParams& params, double time);
-  void drawMidiTimeline(MidiTimelineParams& params);
-  void drawProgs(MidiTimelineParams& params);
+  void syncWithPlayerPlaybackTicks(int player_playback_ticks) {
+    int ticks_per_second = PPQ * 1000000 / tempo;
+    playback_tick = (ticks_per_second * player_playback_ticks / tickrate);
+  }
+};
 
-  // void DrawProgInstances(MidiTimelineParams &params);
-  // void DrawSoundRow();
+void readBank(snd::MusicBank* bank, MidiTimelineParams& params);
+void readMidiData(snd::Midi& midi, MidiTimelineParams& params);
+void MidiTimeline(MidiTimelineParams& params, double time);
+void drawMidiTimeline(MidiTimelineParams& params);
+void drawProgs(MidiTimelineParams& params);
+
+// void DrawProgInstances(MidiTimelineParams &params);
+// void DrawSoundRow();

@@ -27,9 +27,7 @@ void readBank(snd::MusicBank* bank, MidiTimelineParams& params) {
   params.selected.clear();
   params.tabSelected = -1;
   params.beganClickingTimeline = false;
-  params.draggedInstance = -1;
-  params.stretchedInstanceLeft = -1;
-  params.stretchedInstanceRight = -1;
+  params.dragType = NOT_DRAGGING;
   params.startTick = 0;
   params.timelineZoom = 1.0;
 
@@ -431,21 +429,28 @@ void dragInstances(MidiTimelineParams& params, std::vector<NoteInstance>& notes,
       params.startTick = params.timelineStartBeforeClick - (int)ceil(dragDelta.x / tickWidth);
       if (params.startTick < 0)
         params.startTick = 0;
-    } else if (params.stretchedInstanceLeft != -1) {
-      auto& stretchLeft = notes[params.stretchedInstanceLeft];
-      stretchLeft.tickStart =
-          params.selected[params.stretchedInstanceLeft].first + (int)ceil(dragDelta.x / tickWidth);
-      if (stretchLeft.tickStart < 0)
-        stretchLeft.tickStart = 0;
-      else if (stretchLeft.tickStart >= stretchLeft.tickEnd - 1)
-        stretchLeft.tickStart = stretchLeft.tickEnd - 1;
-    } else if (params.stretchedInstanceRight != -1) {
-      auto& stretchRight = notes[params.stretchedInstanceRight];
-      stretchRight.tickEnd = params.selected[params.stretchedInstanceRight].second +
+    } else if (params.dragType == StretchingLeft) {
+      for (auto selectedIter : params.selected) {
+        auto& selected = notes[selectedIter.first];
+        int tickStartAtClick = selectedIter.second.first;
+
+        selected.tickStart = tickStartAtClick + (int)ceil(dragDelta.x / tickWidth);
+        if (selected.tickStart < 0)
+          selected.tickStart = 0;
+        else if (selected.tickStart >= selected.tickEnd - 1)
+          selected.tickStart = selected.tickEnd - 1;
+      }
+    } else if (params.dragType == StetchingRight) {
+      for (auto selectedIter : params.selected) {
+        auto& selected = notes[selectedIter.first];
+        int tickEndAtClick = selectedIter.second.second;
+
+        selected.tickEnd = tickEndAtClick +
                              (int)ceil(dragDelta.x / tickWidth);
-      if (stretchRight.tickEnd <= stretchRight.tickStart + 1)
-        stretchRight.tickEnd = stretchRight.tickStart + 1;
-    } else if (params.draggedInstance != -1) {
+        if (selected.tickEnd <= selected.tickStart + 1)
+          selected.tickEnd = selected.tickStart + 1;
+      }
+    } else if (params.dragType == Dragging) {
       for (auto selectedIter : params.selected) {
         auto& selected = notes[selectedIter.first];
         int tickStartAtClick = selectedIter.second.first;
@@ -478,18 +483,16 @@ bool handleInstanceSelection(MidiTimelineParams& params,
 
   // Check if potentially able to stretch or drag instance
   // Can stretch left
-  if (params.stretchedInstanceLeft == index || mouseOverlapsInstanceStart) {
+  if (params.selected.contains(index) && params.dragType == StretchingLeft || mouseOverlapsInstanceStart) {
     ImGui::GetWindowDrawList()->AddTriangleFilled(ImVec2(start.x + 2, start.y + NOTE_HEIGHT / 2.0),
                                                   ImVec2(start.x + 8.0, start.y + NOTE_HEIGHT / 2.0 + 4),
                                                   ImVec2(start.x + 8.0, start.y + NOTE_HEIGHT / 2.0 - 4), 0xFF000000);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstanceStart) {
       clickedButton = true;
       ImGui::GetWindowDrawList()->AddTriangleFilled(
-          ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0),
-          ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
-      params.stretchedInstanceLeft = index;
-      params.stretchedInstanceRight = -1;
-      params.draggedInstance = -1;
+      ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0),
+      ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
+      params.dragType = StretchingLeft;
 
       if (!params.selected.contains(index)) {
         if (!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
@@ -499,15 +502,13 @@ bool handleInstanceSelection(MidiTimelineParams& params,
     }
   }
   // Can stretch right
-  else if (params.stretchedInstanceRight == index || mouseOverlapsInstanceEnd) {
+  else if (params.selected.contains(index) && params.dragType == StetchingRight || mouseOverlapsInstanceEnd) {
     ImGui::GetWindowDrawList()->AddTriangleFilled(ImVec2(end.x - 2, start.y + NOTE_HEIGHT / 2.0),
                                                   ImVec2(end.x - 8.0, start.y + NOTE_HEIGHT / 2.0 + 4),
                                                   ImVec2(end.x - 8.0, start.y + NOTE_HEIGHT / 2.0 - 4), 0xFF000000);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstanceEnd) {
       clickedButton = true;
-      params.stretchedInstanceLeft = -1;
-      params.stretchedInstanceRight = index;
-      params.draggedInstance = -1;
+      params.dragType = StetchingRight;
 
       if (!params.selected.contains(index)) {
         if (!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
@@ -517,7 +518,7 @@ bool handleInstanceSelection(MidiTimelineParams& params,
     }
   }
   // Can drag
-  else if (params.selected.contains(index) || mouseOverlapsInstance) {
+  else if (params.selected.contains(index) && params.dragType == Dragging || mouseOverlapsInstance) {
     ImGui::GetWindowDrawList()->AddTriangle(ImVec2(start.x + 2, start.y + NOTE_HEIGHT / 2.0),
                                             ImVec2(start.x + 8.0, start.y + NOTE_HEIGHT / 2.0 + 4),
                                             ImVec2(start.x + 8.0, start.y + NOTE_HEIGHT / 2.0 - 4), 0xFF000000);
@@ -526,10 +527,7 @@ bool handleInstanceSelection(MidiTimelineParams& params,
                                             ImVec2(end.x - 8.0, start.y + NOTE_HEIGHT / 2.0 - 4), 0xFF000000);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstance) {
       clickedButton = true;
-      params.stretchedInstanceLeft = -1;
-      params.stretchedInstanceRight = -1;
-      params.draggedInstance = index;
-
+      params.dragType = Dragging;
       if (!params.selected.contains(index)) {
         if (!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
           params.selected.clear();
@@ -561,7 +559,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
   ImGui::Text(topline.c_str());
 
   const auto drawlist = ImGui::GetWindowDrawList();
-  const auto io = ImGui::GetIO();
+  const auto& io = ImGui::GetIO();
 
   const int ticksPerMeasure = 4 * params.PPQ;
   const double quarterNoteWidth = 10.0 * params.timelineZoom;
@@ -598,10 +596,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
 
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
           params.beganClickingTimeline = false;
-          params.stretchedInstanceRight = -1;
-          params.stretchedInstanceLeft = -1;
-          params.draggedInstance = -1;
-
+          params.dragType = NOT_DRAGGING;
           // Update initial start/end of selected nodes
           for (auto& iter : params.selected) {
             auto note = notes[iter.first];
@@ -612,9 +607,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
           if (windowPos.x <= mousePos.x && mousePos.x <= windowPos.x + windowSize.x &&
               windowPos.y <= mousePos.y && mousePos.y <= windowPos.y + TIMELINE_BOX_HEIGHT) {
             params.beganClickingTimeline = true;
-            params.stretchedInstanceRight = -1;
-            params.stretchedInstanceLeft = -1;
-            params.draggedInstance = -1;
+            params.dragType = NOT_DRAGGING;
             params.timelineStartBeforeClick = params.startTick;
           } else {
             params.beganClickingTimeline = false;
@@ -733,12 +726,14 @@ void drawMidiTimeline(MidiTimelineParams& params) {
           currentPos.x += quarterNoteWidth;
           curTick += params.PPQ;
         }
+        params.windowHeight = windowPos.y + TIMELINE_BOX_HEIGHT + CHANNEL_HEIGHT * NUM_CHANNELS - ImGui::GetWindowPos().y;
 
         // Create a window for customizing currently selected instance.
         bool clickedProperties =
             drawSelectedProperties(params, windowPos, windowSize, notes, mousePos, lastTick);
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && (params.stretchedInstanceLeft == -1) &&
-            (params.stretchedInstanceRight == -1) && (params.draggedInstance == -1) &&
+
+
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && params.dragType == NOT_DRAGGING &&
             !params.beganClickingTimeline && !clickedButton && !clickedProperties) {
           params.selected.clear();
 
@@ -756,8 +751,10 @@ void drawMidiTimeline(MidiTimelineParams& params) {
               ImVec2(currentPos.x, windowPos.y + TIMELINE_BOX_HEIGHT + CHANNEL_HEIGHT * NUM_CHANNELS),
               0xFF00FF00, 3.0);
         }
+        //printf("Time: %f\n", params.time);
         auto noteIter = params.notePlaybackQueue.begin();
         while(noteIter != params.notePlaybackQueue.end()){
+          //printf("%f\n", noteIter->first);
           if(params.time >= noteIter->first){
             auto& note = notes[noteIter->second];
             note.playNote(params.bank, &params.bank->Sounds[0], params.manager);
@@ -779,15 +776,15 @@ void drawMidiTimeline(MidiTimelineParams& params) {
       note.update(params.time, params.tempo, params.PPQ);
     }
   }
-
-  //printf("%d\n", maxConcurrent);
 }
 
 void MidiTimeline(MidiTimelineParams& params, double time) {
   params.updateTime(time);
   ImGui::PushStyleColor(ImGuiCol_ChildBg, tracker::CREAM);
-  ImGui::BeginChild("miditimeline");
-
+  auto oldFontScale = ImGui::GetIO().FontGlobalScale;
+  ImGui::GetIO().FontGlobalScale = 1.3;
+  ImGui::BeginChild("miditimeline", ImVec2(0, params.windowHeight), ImGuiChildFlags_None, ImGuiWindowFlags_None);
+  
   if (ImGui::BeginTabBar("MidiTimelineBar")) {
     if (ImGui::BeginTabItem("Timeline")) {
       drawMidiTimeline(params);
@@ -801,4 +798,5 @@ void MidiTimeline(MidiTimelineParams& params, double time) {
   }
   ImGui::PopStyleColor();
   ImGui::EndChild();
+  ImGui::GetIO().FontGlobalScale = oldFontScale;
 }
