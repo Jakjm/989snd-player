@@ -91,8 +91,8 @@ enum DRAG_TYPE{
 };
 
 struct MidiTimelineParams {
-  snd::MusicBank* bank;
-  snd::VoiceManager* manager;
+  snd::MusicBank* bank = nullptr;
+  snd::VoiceManager* manager = nullptr;
   double time;
   int playback_tick = 0;
   int tempo = 500000;  // Number of microseconds per quarter note

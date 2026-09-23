@@ -384,11 +384,11 @@ bool drawSelectedProperties(MidiTimelineParams& params,
           ImGui::SliderInt("Program", &instance.program, 0, NUM_CHANNELS);
           ImGui::SetNextItemWidth(150.0);
           ImGui::SliderInt("Note", &instance.note, 0, 127);
-          if(ImGui::Button("Play")){
+          if(ImGui::Button("Play") && params.bank){
             instance.playNote(params.bank, &params.bank->Sounds[0], params.manager);
             instance.voice_started_time = params.time;
           }
-          if(params.selected.size() > 1 && params.notePlaybackQueue.empty() && ImGui::Button("Play All")){
+          if(params.selected.size() > 1 && params.notePlaybackQueue.empty() && ImGui::Button("Play All") && params.bank){
             for(auto noteIt : params.selected){
               auto index = noteIt.first;
               auto noteStart = noteIt.second.first;
@@ -490,16 +490,7 @@ bool handleInstanceSelection(MidiTimelineParams& params,
                                                   ImVec2(start.x + 8.0, start.y + NOTE_HEIGHT *0.75), 0xFF000000);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstanceStart) {
       clickedButton = true;
-      ImGui::GetWindowDrawList()->AddTriangleFilled(
-      ImVec2(start.x + 2, start.y + 20.0), ImVec2(start.x + 12.0, start.y + 14.0),
-      ImVec2(start.x + 12.0, start.y + 26.0), 0xFF000000);
       params.dragType = StretchingLeft;
-
-      if (!params.selected.contains(index)) {
-        if (!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
-          params.selected.clear();
-        params.selected.insert({index, {instance.tickStart, instance.tickEnd}});
-      }
     }
   }
   // Can stretch right
@@ -510,12 +501,6 @@ bool handleInstanceSelection(MidiTimelineParams& params,
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstanceEnd) {
       clickedButton = true;
       params.dragType = StetchingRight;
-
-      if (!params.selected.contains(index)) {
-        if (!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
-          params.selected.clear();
-        params.selected.insert({index, {instance.tickStart, instance.tickEnd}});
-      }
     }
   }
   // Can drag
@@ -529,11 +514,14 @@ bool handleInstanceSelection(MidiTimelineParams& params,
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouseOverlapsInstance) {
       clickedButton = true;
       params.dragType = Dragging;
-      if (!params.selected.contains(index)) {
-        if (!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
-          params.selected.clear();
-        params.selected.insert({index, {instance.tickStart, instance.tickEnd}});
-      }
+    }
+  }
+
+  if(clickedButton){
+    if (!params.selected.contains(index)) {
+      if (!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+        params.selected.clear();
+      params.selected.insert({index, {instance.tickStart, instance.tickEnd}});
     }
   }
 
