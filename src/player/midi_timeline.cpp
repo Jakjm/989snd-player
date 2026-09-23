@@ -15,8 +15,6 @@
 #include "third-party/imgui/imgui.h"
 #include "third-party/imgui/imgui_internal.h"
 
-
-
 void readBank(snd::MusicBank* bank, MidiTimelineParams& params) {
   params.notes.clear();
   params.selected.clear();
@@ -348,6 +346,17 @@ void readMidiData(snd::Midi& midi, MidiTimelineParams& params) {
 
 void drawProgs(MidiTimelineParams& params) {}
 
+static const char* NOTE_NAMES[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+//An octave consists of 12 semitones
+static constexpr int OCTAVE_WIDTH = 12;
+std::string noteName (int note){
+  //Treating C4 = middle C = 60
+  int octave = (note / OCTAVE_WIDTH) - 1;
+  std::string name = NOTE_NAMES[note % OCTAVE_WIDTH] + std::to_string(octave);
+  name = "Note:" + name + "(" + std::to_string(note) + ")";
+  return name;
+}
+
 bool drawSelectedProperties(MidiTimelineParams& params,
                             ImVec2 windowPos,
                             ImVec2 windowSize,
@@ -383,7 +392,51 @@ bool drawSelectedProperties(MidiTimelineParams& params,
           ImGui::SetNextItemWidth(150.0);
           ImGui::SliderInt("Program", &instance.program, 0, NUM_CHANNELS);
           ImGui::SetNextItemWidth(150.0);
-          ImGui::SliderInt("Note", &instance.note, 0, 127);
+          
+          //Printing the note
+          ImGui::Text(noteName(instance.note).c_str());
+          
+          //Button for increasing note by a semitone. Disabled if at end of note range.
+          ImGui::SameLine();
+          bool atEndOfNoteRange = instance.note == 127;
+          
+          ImGui::BeginDisabled(atEndOfNoteRange);
+          if((ImGui::Button("+") || !ImGui::GetIO().KeyShift && (ImGui::IsKeyReleased(ImGuiKey_KeypadAdd) || ImGui::IsKeyReleased(ImGuiKey_Equal))) && !atEndOfNoteRange)
+          {
+            instance.note++;
+          }
+          ImGui::EndDisabled();
+          //Button for decreasing note by a semitone. Disabled if at end of note range.
+          ImGui::SameLine();
+          bool atBeginningOfNoteRange = instance.note == 0;
+          ImGui::BeginDisabled(atBeginningOfNoteRange);
+          if((ImGui::Button("-") || !ImGui::GetIO().KeyShift && (ImGui::IsKeyReleased(ImGuiKey_KeypadSubtract) || ImGui::IsKeyReleased(ImGuiKey_Minus))) && !atBeginningOfNoteRange)
+          {
+            instance.note--;
+          }
+          ImGui::EndDisabled();
+          //Button for increasing note by an octave. Disabled if at end of note range.
+          ImGui::SameLine();
+          bool atHighestOctave = instance.note > 115;
+          ImGui::BeginDisabled(atHighestOctave);
+          if((ImGui::Button("Oct+") || ImGui::GetIO().KeyShift && (ImGui::IsKeyReleased(ImGuiKey_KeypadAdd) || ImGui::IsKeyReleased(ImGuiKey_Equal))) && !atHighestOctave)
+          {
+            instance.note += 12;
+          }
+          ImGui::EndDisabled();
+          //Button for decreasing note by an octave. Disabled if at end of note range.
+          ImGui::SameLine();
+          bool atLowestOctave = instance.note < 12;
+          ImGui::BeginDisabled(atLowestOctave);
+          if((ImGui::Button("Oct-") || ImGui::GetIO().KeyShift && (ImGui::IsKeyReleased(ImGuiKey_KeypadSubtract) || ImGui::IsKeyReleased(ImGuiKey_Minus))) && !atLowestOctave)
+          {
+            instance.note -= 12;
+          }
+          ImGui::EndDisabled();
+
+          //TODO fix channel min/max
+
+          //ImGui::SliderInt("Note", &instance.note, 0, 127);
           if(ImGui::Button("Play") && params.bank){
             instance.playNote(params.bank, &params.bank->Sounds[0], params.manager);
             instance.voice_started_time = params.time;

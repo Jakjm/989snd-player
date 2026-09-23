@@ -25,7 +25,7 @@ struct NoteInstance {
   int tickEnd = 0;
   int program = 0;
   int velocity = 0;
-  int note = 0;
+  int note = 0; //Value is in semitones
   int channel = 0;
 
   std::shared_ptr<snd::midi_voice> voice;
@@ -83,7 +83,7 @@ struct NoteInstance {
   }
 };
 
-enum DRAG_TYPE{
+enum NOTE_DRAG_TYPE{
   NOT_DRAGGING = -1,
   Dragging = 0,
   StetchingRight = 1,
@@ -107,7 +107,7 @@ struct MidiTimelineParams {
   int startTick = 0;  //The tick at which the timeline starts
   bool beganClickingTimeline = false;
   double windowHeight = 0.0;
-  DRAG_TYPE dragType = NOT_DRAGGING;
+  NOTE_DRAG_TYPE dragType = NOT_DRAGGING;
   int timelineStartBeforeClick = -1;
   int tabSelected = -1;
   std::vector<std::array<std::pair<unsigned char, unsigned char>, NUM_CHANNELS>> channelNoteMinMax;
