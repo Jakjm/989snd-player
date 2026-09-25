@@ -106,6 +106,7 @@ struct MidiTimelineParams {
   float timelineZoom = 1.0;
   int startTick = 0;  //The tick at which the timeline starts
   bool beganClickingTimeline = false;
+  bool beganSelecting = false;
   double windowHeight = 0.0;
   NOTE_DRAG_TYPE dragType = NOT_DRAGGING;
   int timelineStartBeforeClick = -1;

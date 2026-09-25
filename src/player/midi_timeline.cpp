@@ -394,7 +394,7 @@ bool drawSelectedProperties(MidiTimelineParams& params,
           ImGui::SetNextItemWidth(150.0);
           
           //Printing the note
-          ImGui::Text(noteName(instance.note).c_str());
+          ImGui::TextUnformatted(noteName(instance.note).c_str());
           
           //Button for increasing note by a semitone. Disabled if at end of note range.
           ImGui::SameLine();
@@ -597,7 +597,7 @@ bool handleInstanceSelection(MidiTimelineParams& params,
 void drawMidiTimeline(MidiTimelineParams& params) {
   const auto topline =
       fmt::format("Tempo (micros per quarter note): {} PPQ: {}", params.tempo, params.PPQ);
-  ImGui::Text(topline.c_str());
+  ImGui::TextUnformatted(topline.c_str());
 
   const auto drawlist = ImGui::GetWindowDrawList();
   const auto& io = ImGui::GetIO();
@@ -632,7 +632,6 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         const auto windowSize = ImGui::GetContentRegionAvail();
         const auto mousePos = io.MousePos;
         
-
         dragInstances(params, notes, tickWidth);
 
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
@@ -652,6 +651,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
             params.timelineStartBeforeClick = params.startTick;
           } else {
             params.beganClickingTimeline = false;
+            params.beganSelecting = true;
           }
         }
         
@@ -759,8 +759,11 @@ void drawMidiTimeline(MidiTimelineParams& params) {
             drawSelectedProperties(params, windowPos, windowSize, notes, mousePos, lastTick);
 
 
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && params.dragType == NOT_DRAGGING &&
-            !params.beganClickingTimeline && !clickedButton && !clickedProperties) {
+        // if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && params.dragType == NOT_DRAGGING &&
+        //     !params.beganClickingTimeline && !clickedButton && !clickedProperties) {        // if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && params.dragType == NOT_DRAGGING &&
+        //     !params.beganClickingTimeline && !clickedButton && !clickedProperties) {
+        //TODO: temporarily clearing selection exclusively with escape key.
+        if(ImGui::IsKeyReleased(ImGuiKey_Escape))
           params.selected.clear();
 
           std::sort(notes.begin(), notes.end(), [](const NoteInstance &first, const NoteInstance &second){
