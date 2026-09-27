@@ -380,8 +380,10 @@ bool drawSelectedProperties(MidiTimelineParams& params,
     const auto windowSize = ImGui::GetContentRegionAvail();
     if (ImGui::BeginTabBar("Note Selections")) {
       int index = 0;
-      for (auto iter : params.selected) {
-        auto& instance = notes[iter.first];
+      auto iter = params.selected.begin();
+      while(iter != params.selected.end())
+      {
+        auto& instance = notes[iter->first];
         std::string selectionNumberText = "(" + std::to_string(index) + ")";
         auto textSize = ImGui::CalcTextSize(selectionNumberText.c_str());
         if (ImGui::BeginTabItem(selectionNumberText.c_str())) {
@@ -441,23 +443,45 @@ bool drawSelectedProperties(MidiTimelineParams& params,
             instance.playNote(params.bank, &params.bank->Sounds[0], params.manager);
             instance.voice_started_time = params.time;
           }
-          if(params.selected.size() > 1 && params.notePlaybackQueue.empty() && ImGui::Button("Play All") && params.bank){
-            for(auto noteIt : params.selected){
-              auto index = noteIt.first;
-              auto noteStart = noteIt.second.first;
-              auto noteStartSeconds = (double)noteStart * (double)params.tempo  / (1000000.0 * (double)params.PPQ);
-              params.notePlaybackQueue.push_back({noteStartSeconds,noteIt.first}); 
+          if(params.selected.size() > 1 && params.notePlaybackQueue.empty()){
+            ImGui::SameLine();
+            if (ImGui::Button("Play All") && params.bank){
+              for(auto noteIt : params.selected){
+                auto index = noteIt.first;
+                auto noteStart = noteIt.second.first;
+                auto noteStartSeconds = (double)noteStart * (double)params.tempo  / (1000000.0 * (double)params.PPQ);
+                params.notePlaybackQueue.push_back({noteStartSeconds,noteIt.first}); 
+              }
+              std::sort(params.notePlaybackQueue.begin(), params.notePlaybackQueue.end(), [](std::pair<double,int> pairOne, std::pair<double,int> pairTwo){
+                return pairOne.first < pairTwo.first;
+              });
+              for(auto revIt = params.notePlaybackQueue.rbegin(); revIt != params.notePlaybackQueue.rend(); ++revIt){
+                revIt->first = revIt->first + params.time - params.notePlaybackQueue.begin()->first;
+              }
             }
-            std::sort(params.notePlaybackQueue.begin(), params.notePlaybackQueue.end(), [](std::pair<double,int> pairOne, std::pair<double,int> pairTwo){
-              return pairOne.first < pairTwo.first;
-            });
-            for(auto revIt = params.notePlaybackQueue.rbegin(); revIt != params.notePlaybackQueue.rend(); ++revIt){
-              revIt->first = revIt->first + params.time - params.notePlaybackQueue.begin()->first;
+          }
+          if(ImGui::Button("Delete") || ImGui::IsKeyReleased(ImGuiKey_Delete)){
+            notes.erase(notes.begin() + iter->first);
+            //Remove the selection from params.selected
+            std::map<int, std::pair<int, int>> newSelected;
+            //Recreate the selected items to reflect the notes vector after the selected note is deleted
+            for(auto& s: params.selected){
+              if(s.first > iter->first)
+              {
+                newSelected.insert({s.first - 1, s.second});
+              }
+              else if(s.first < iter->first){
+                newSelected.insert(s);
+              }
             }
+            params.selected = std::move(newSelected);
+            ImGui::EndTabItem();
+            break;
           }
           ImGui::EndTabItem();
         }
         ++index;
+        ++iter;
       }
       ImGui::EndTabBar();
     }
@@ -764,6 +788,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         //     !params.beganClickingTimeline && !clickedButton && !clickedProperties) {
         //TODO: temporarily clearing selection exclusively with escape key.
         if(ImGui::IsKeyReleased(ImGuiKey_Escape))
+        {
           params.selected.clear();
 
           std::sort(notes.begin(), notes.end(), [](const NoteInstance &first, const NoteInstance &second){
