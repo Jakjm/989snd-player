@@ -358,17 +358,23 @@ std::string noteName (int note){
   return name;
 }
 
+
+//Draw properties of the selected note.
 bool drawSelectedProperties(MidiTimelineParams& params,
                             ImVec2 windowPos,
-                            ImVec2 windowSize,
                             std::vector<NoteInstance>& notes,
                             ImVec2 mousePos,
                             int lastTick) {
   bool clickedProperties = false;
   if (!params.selected.empty()) {
+    
+    auto screenWindowMin = ImGui::GetWindowDrawList()->GetClipRectMin();
+    auto screenWindowMax = ImGui::GetWindowDrawList()->GetClipRectMax();
+    ImVec2 screenWindowSize(screenWindowMax.x - screenWindowMin.x, screenWindowMax.y - screenWindowMin.y);
+
     ImGui::SetNextWindowSizeConstraints(ImVec2(300, 400), ImVec2(300, 400));
-    ImGui::SetNextWindowPos(ImVec2(windowPos.x + windowSize.x, windowPos.y + windowSize.y),
-                            ImGuiCond_Always, ImVec2(0.95, 0.95));
+    ImGui::SetNextWindowPos(ImVec2(windowPos.x + screenWindowSize.x, windowPos.y + screenWindowSize.y),
+                            ImGuiCond_Always, ImVec2(1.0,1.0));
     bool open = true;
     ImGui::PushStyleColor(ImGuiCol_Text, tracker::SCREEN_FG);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, tracker::CREAM);
@@ -789,7 +795,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
 
         // Create a window for customizing currently selected instance.
         bool clickedProperties =
-            drawSelectedProperties(params, windowPos, windowSize, notes, mousePos, lastTick);
+            drawSelectedProperties(params, windowPos, notes, mousePos, lastTick);
 
         double startX = windowPos.x + 5;
         //Pasting selection to mouse cursor position
