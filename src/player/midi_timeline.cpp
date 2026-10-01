@@ -358,16 +358,15 @@ std::string noteName (int note){
   return name;
 }
 
-
 //Draw properties of the selected note.
-bool drawSelectedProperties(MidiTimelineParams& params,
-                            ImVec2 windowPos,
+std::pair<bool, int> drawSelectedProperties(MidiTimelineParams& params,
                             std::vector<NoteInstance>& notes,
-                            ImVec2 mousePos,
                             int lastTick) {
   bool clickedProperties = false;
+  const auto windowPos = ImGui::GetCursorScreenPos();
+  const auto windowSize = ImGui::GetContentRegionAvail();
+  const auto mousePos = ImGui::GetMousePos();
   if (!params.selected.empty()) {
-    
     auto screenWindowMin = ImGui::GetWindowDrawList()->GetClipRectMin();
     auto screenWindowMax = ImGui::GetWindowDrawList()->GetClipRectMax();
     ImVec2 screenWindowSize(screenWindowMax.x - screenWindowMin.x, screenWindowMax.y - screenWindowMin.y);
@@ -383,8 +382,7 @@ bool drawSelectedProperties(MidiTimelineParams& params,
                      ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
                      ImGuiWindowFlags_NoMove);
 
-    const auto windowPos = ImGui::GetCursorScreenPos();
-    const auto windowSize = ImGui::GetContentRegionAvail();
+
     if (ImGui::BeginTabBar("Note Selections")) {
       int index = 0;
       auto iter = params.selected.begin();
@@ -443,7 +441,6 @@ bool drawSelectedProperties(MidiTimelineParams& params,
           }
           ImGui::EndDisabled();
 
-          //TODO fix channel min/max
 
           //ImGui::SliderInt("Note", &instance.note, 0, 127);
           if(ImGui::Button("Play") && params.bank){
@@ -467,7 +464,7 @@ bool drawSelectedProperties(MidiTimelineParams& params,
               }
             }
           }
-          if(ImGui::Button("Delete") || !ImGui::IsKeyDown(ImGuiKey_LeftShift) && ImGui::IsKeyReleased(ImGuiKey_Delete)){
+          if(ImGui::Button("Delete") || !(ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift)) && ImGui::IsKeyReleased(ImGuiKey_Delete)){
             notes.erase(notes.begin() + iter->first);
             //Remove the selection from params.selected
             std::map<int, std::pair<int, int>> newSelected;
@@ -486,7 +483,7 @@ bool drawSelectedProperties(MidiTimelineParams& params,
             break;
           }
           ImGui::SameLine();
-          if(ImGui::Button("Delete All") || ImGui::IsKeyDown(ImGuiKey_LeftShift) && ImGui::IsKeyReleased(ImGuiKey_Delete)){
+          if(ImGui::Button("Delete All") || (ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift)) && ImGui::IsKeyReleased(ImGuiKey_Delete)){
             int indexOffset = 0;
             auto selectedIter = params.selected.begin();
             auto noteIt = notes.begin();
@@ -678,6 +675,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         const auto windowPos = ImGui::GetCursorScreenPos();
         const auto windowSize = ImGui::GetContentRegionAvail();
         const auto mousePos = io.MousePos;
+        auto &channelMinMax = params.channelNoteMinMax[midi_index];
         
         dragInstances(params, notes, tickWidth);
 
@@ -724,7 +722,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
               endX = windowPos.x + 5 + tickWidth * (double)(instance.tickEnd - firstTick);
 
 
-            auto minMax = params.channelNoteMinMax[midi_index][instance.channel];
+            auto minMax = channelMinMax[instance.channel];
             double depth = (double)(minMax.second - instance.note) * (CHANNEL_HEIGHT  - NOTE_HEIGHT) / (double)(minMax.second - minMax.first + 1);
             
             auto start = ImVec2(startX, windowPos.y + TIMELINE_BOX_HEIGHT + CHANNEL_HEIGHT * instance.channel + depth);
@@ -814,8 +812,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         params.windowHeight = windowPos.y + TIMELINE_BOX_HEIGHT + CHANNEL_HEIGHT * NUM_CHANNELS - ImGui::GetWindowPos().y;
 
         // Create a window for customizing currently selected instance.
-        bool clickedProperties =
-            drawSelectedProperties(params, windowPos, notes, mousePos, lastTick);
+        bool clickedProperties = drawSelectedProperties(params, notes, lastTick);
 
         double startX = windowPos.x + 5;
         //Pasting selection to mouse cursor position
@@ -831,8 +828,20 @@ void drawMidiTimeline(MidiTimelineParams& params) {
           }
         }
 
-
-        if (ImGui::IsKeyReleased(ImGuiKey_Escape) || ImGui::IsMouseReleased(ImGuiMouseButton_Left) && params.dragType == NOT_DRAGGING &&
+        if (ImGui::IsKeyReleased(ImGuiKey_N)) {
+          //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
+          double channelPos = (mousePos.y - (windowPos.y + TIMELINE_BOX_HEIGHT)) / CHANNEL_HEIGHT;
+          if(channelPos >= 0 && channelPos < NUM_CHANNELS)
+          {
+            int newStart = firstTick + (int)ceil((mousePos.x - startX) / tickWidth);
+            int newEnd = newStart + params.PPQ;
+            int newChannel = (int)channelPos;
+            int note = channelMinMax[newChannel].second;
+            notes.emplace_back(newStart, newEnd, 0, 0, note, newChannel); // Default velocity, program, note, channel
+            params.selected.insert({static_cast<int>(notes.size()) - 1, {newStart, newEnd}});
+          }
+        }
+        else if (ImGui::IsKeyReleased(ImGuiKey_Escape) || ImGui::IsMouseReleased(ImGuiMouseButton_Left) && params.dragType == NOT_DRAGGING &&
             !params.beganClickingTimeline && !clickedButton && !clickedProperties) {
           params.selected.clear();
         }
