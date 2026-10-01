@@ -467,7 +467,7 @@ bool drawSelectedProperties(MidiTimelineParams& params,
               }
             }
           }
-          if(ImGui::Button("Delete") || ImGui::IsKeyReleased(ImGuiKey_Delete)){
+          if(ImGui::Button("Delete") || !ImGui::IsKeyDown(ImGuiKey_LeftShift) && ImGui::IsKeyReleased(ImGuiKey_Delete)){
             notes.erase(notes.begin() + iter->first);
             //Remove the selection from params.selected
             std::map<int, std::pair<int, int>> newSelected;
@@ -482,6 +482,26 @@ bool drawSelectedProperties(MidiTimelineParams& params,
               }
             }
             params.selected = std::move(newSelected);
+            ImGui::EndTabItem();
+            break;
+          }
+          ImGui::SameLine();
+          if(ImGui::Button("Delete All") || ImGui::IsKeyDown(ImGuiKey_LeftShift) && ImGui::IsKeyReleased(ImGuiKey_Delete)){
+            int indexOffset = 0;
+            auto selectedIter = params.selected.begin();
+            auto noteIt = notes.begin();
+            while(selectedIter != params.selected.end()){
+              auto index = std::distance(notes.begin(), noteIt);
+              if(selectedIter->first - indexOffset == index){
+                noteIt = notes.erase(noteIt);
+                ++selectedIter;
+                ++indexOffset;
+              }
+              else {
+                ++noteIt;
+              }
+            }
+            params.selected.clear();
             ImGui::EndTabItem();
             break;
           }
@@ -630,7 +650,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
   const auto& io = ImGui::GetIO();
 
   const int ticksPerMeasure = 4 * params.PPQ;
-  const double quarterNoteWidth = 10.0 * params.timelineZoom;
+  const double quarterNoteWidth = 60.0 * params.timelineZoom;
   const double measureWidth = 4.0 * quarterNoteWidth;
   const double tickWidth = measureWidth / ticksPerMeasure;
 
