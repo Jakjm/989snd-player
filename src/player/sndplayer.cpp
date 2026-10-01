@@ -866,7 +866,7 @@ void SndPlayer::draw_state_panel() {
 
 void SndPlayer::draw_active_panel() {
   ImGui::PushStyleColor(ImGuiCol_WindowBg, tracker::SCREEN_BG);
-  bool open = ImGui::Begin("Active sounds");
+  bool open = ImGui::Begin("Active sounds", NULL, ImGuiWindowFlags_NoScrollWithMouse);
   ImGui::PopStyleColor();
 
   if (open) {

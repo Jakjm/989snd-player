@@ -893,7 +893,7 @@ void MidiTimeline(MidiTimelineParams& params, double time) {
   ImGui::PushStyleColor(ImGuiCol_ChildBg, tracker::CREAM);
   auto oldFontScale = ImGui::GetIO().FontGlobalScale;
   ImGui::GetIO().FontGlobalScale = 1.3;
-  ImGui::BeginChild("miditimeline", ImVec2(0, params.windowHeight), ImGuiChildFlags_None, ImGuiWindowFlags_None);
+  ImGui::BeginChild("miditimeline", ImVec2(0, params.windowHeight), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar);
   
   if (ImGui::BeginTabBar("MidiTimelineBar")) {
     if (ImGui::BeginTabItem("Timeline")) {
