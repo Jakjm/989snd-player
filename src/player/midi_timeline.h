@@ -99,11 +99,12 @@ struct MidiTimelineParams {
   int PPQ = 480;       // Number of ticks per quarter note
   u8 registers[16];
   u8* macros[16];
-  std::vector<std::vector<NoteInstance>> notes = {{NoteInstance(120, 960, 1, 2, 0, 1),
-                                                    NoteInstance(360, 540, 1, 0, 1, 0),
-                                                    NoteInstance(600, 840, 1, 1, 0, 0)}};
+  std::vector<std::vector<NoteInstance>> notes = {{NoteInstance(480, 1440, 1, 2, 0, 1),
+                                                    NoteInstance(480, 720, 1, 0, 1, 0),
+                                                    NoteInstance(960, 1200, 1, 1, 0, 0)}};
 
-  float timelineZoom = 1.0;
+  
+  double timelineZoom = 1.0;
   int startTick = 0;  //The tick at which the timeline starts
   bool beganClickingTimeline = false;
   bool beganSelecting = false;
@@ -118,6 +119,13 @@ struct MidiTimelineParams {
   MidiTimelineParams(){
     auto &minMax = channelNoteMinMax.emplace_back();
     minMax.fill({127,0});
+  }
+
+  double quarterNoteWidth(){
+    return 60.0 * timelineZoom;
+  }
+  double tickWidth(){
+    return quarterNoteWidth() / (double)PPQ;
   }
 
   void updateTime(double time){
