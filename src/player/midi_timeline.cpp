@@ -491,8 +491,8 @@ std::pair<bool, int> drawSelectedProperties(MidiTimelineParams& params,
       ImGui::EndTabBar();
     }
     const auto mousePos = ImGui::GetMousePos();
-    const auto childWindowPos = ImGui::GetCursorScreenPos();
-    const auto childWindowSize = ImGui::GetContentRegionAvail();
+    const auto childWindowPos = ImGui::GetWindowPos();
+    const auto childWindowSize = ImGui::GetWindowSize();
     const auto mouseReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
     if (childWindowPos.x <= mousePos.x && mousePos.x <= childWindowPos.x + childWindowSize.x &&
         childWindowPos.y <= mousePos.y && mousePos.y <= childWindowPos.y + childWindowSize.y &&
