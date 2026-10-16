@@ -13,6 +13,7 @@
 void readBank(snd::MusicBank* bank, MidiTimelineParams& params) {
   params.notes.clear();
   params.selected.clear();
+  params.channelPrograms.clear();
   params.tabSelected = -1;
   params.beganClickingTimeline = false;
   params.dragType = NOT_DRAGGING;
@@ -196,9 +197,9 @@ void readMidiData(snd::Midi& midi, MidiTimelineParams& params) {
   int cont_ct = 2;
 
   std::array<std::multimap<int, int>, NUM_CHANNELS> channel_notes;
-  std::array<int, NUM_CHANNELS> channel_programs;
+  auto &channelPrograms = params.channelPrograms.emplace_back();
   for (int i = 0; i < NUM_CHANNELS; ++i)
-    channel_programs[i] = -1;
+    channelPrograms[i] = -1;
   params.tempo = midi.Tempo;  // micros per squarter note
   params.PPQ = midi.PPQ;
   // u64 ppt = 100 * mics_per_tick / (params.tempo / midi.PPQ);
@@ -234,7 +235,7 @@ void readMidiData(snd::Midi& midi, MidiTimelineParams& params) {
           u8 channel = status_byte & 0xF;
           u8 note = reader.read<u8>();
           u8 velocity = reader.read<u8>();
-          u8 program = channel_programs[channel];
+          u8 program = channelPrograms[channel];
           //printf("Note start at %ld %d %d %d %d\n",time, channel, note, velocity, program);
 
           notes.emplace_back(time, -1, velocity, program, note, channel);
@@ -281,7 +282,7 @@ void readMidiData(snd::Midi& midi, MidiTimelineParams& params) {
         u8 channel = status_byte & 0xf;
         u8 program = reader.read<u8>();
 
-        channel_programs[channel] = program;
+        channelPrograms[channel] = program;
         break;
       }
       case 0xE:
@@ -628,7 +629,7 @@ bool handleInstanceSelection(MidiTimelineParams& params,
   return clickedButton;
 }
 
-void createNewNoteInstance(std::vector<NoteInstance> &notes, double startX, MidiTimelineParams &params, int duration)
+void createNewNoteInstance(std::vector<NoteInstance> &notes, double startX, std::array<int, NUM_CHANNELS> channelPrograms, MidiTimelineParams &params, int duration)
 {
   auto windowPos = ImGui::GetCursorScreenPos();
   auto mousePos = ImGui::GetMousePos();
@@ -641,7 +642,8 @@ void createNewNoteInstance(std::vector<NoteInstance> &notes, double startX, Midi
     int newEnd = newStart + duration;
     int newChannel = (int)channelPos;
     int note = 60; //TODO: adapt to mouse Y within channel
-    notes.emplace_back(newStart, newEnd, 0, 0, note, newChannel); // Default velocity, program, note, channel
+    int program = channelPrograms[newChannel];
+    notes.emplace_back(newStart, newEnd, 50, program, note, newChannel);
     params.selected.insert({(int)notes.size() - 1, {newStart, newEnd}});
   }
 }
@@ -689,6 +691,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
     for (auto it = params.notes.begin(); it != params.notes.end(); ++it) {
       auto midi_index = std::distance(params.notes.begin(), it);
       auto& notes = *it;
+      auto& channelPrograms = params.channelPrograms[midi_index];
 
       if (ImGui::BeginTabItem(("Midi " + std::to_string(midi_index)).c_str())) {
         if (params.tabSelected != midi_index) {
@@ -719,6 +722,20 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         int lastTick = firstTick + (int)ceil(spaceRemaining / params.tickWidth());
         int lastMeasure = lastTick / ticksPerMeasure;
 
+        // Create a window for customizing currently selected instance.
+        auto [clickedProperties, semitones] = drawSelectedProperties(params, notes, lastTick);
+        for(auto selected : params.selected){
+          auto &noteInstance = notes[selected.first];
+          int afterOffset = noteInstance.note + semitones;
+          if(afterOffset < 0)
+            afterOffset = 0;
+          else if(afterOffset > 127)
+            afterOffset = 127;
+
+          noteInstance.note = afterOffset;
+        }
+
+
         //Map of depth to note ending of unfinished notes for each channel.
         //std::array<std::map<int, int>, NUM_CHANNELS> unfinishedNotes;
         for (auto iter = notes.begin(); iter != notes.end(); ++iter) {
@@ -745,7 +762,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
 
             if (handleInstanceSelection(params, index, start, end, mousePos, instance))
             {
-              if(!params.selected.contains(index)){
+              if(!params.selected.contains(index) && !clickedProperties){
                 if((!ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && !ImGui::IsKeyDown(ImGuiKey_RightCtrl))){
                   params.selected.clear();
                 }
@@ -831,44 +848,31 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         }
         params.windowHeight = windowPos.y + TIMELINE_BOX_HEIGHT + CHANNEL_HEIGHT * NUM_CHANNELS - ImGui::GetWindowPos().y;
 
-        // Create a window for customizing currently selected instance.
-        auto [clickedProperties, semitones] = drawSelectedProperties(params, notes, lastTick);
-        for(auto selected : params.selected){
-          auto &noteInstance = notes[selected.first];
-          int afterOffset = noteInstance.note + semitones;
-          if(afterOffset < 0)
-            afterOffset = 0;
-          else if(afterOffset > 127)
-            afterOffset = 127;
-
-          noteInstance.note = afterOffset;
-        }
-
         double startX = params.startX(windowPos);
         //Note creation at mouse position:
         //Whole note
         if(ImGui::IsKeyReleased(ImGuiKey_W)){
           //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
-          createNewNoteInstance(notes, startX, params, params.PPQ * 4);
+          createNewNoteInstance(notes, startX, channelPrograms, params, params.PPQ * 4);
         }
         //Half note
         if(ImGui::IsKeyReleased(ImGuiKey_H)){
           //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
-          createNewNoteInstance(notes, startX, params, params.PPQ * 2);
+          createNewNoteInstance(notes, startX, channelPrograms, params, params.PPQ * 2);
         }
         //Quarter note
         if(ImGui::IsKeyReleased(ImGuiKey_Q)){
           //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
-          createNewNoteInstance(notes, startX, params, params.PPQ);
+          createNewNoteInstance(notes, startX, channelPrograms, params, params.PPQ);
         }
         //Eighth note:
         else if(ImGui::IsKeyReleased(ImGuiKey_E)){
           //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
-          createNewNoteInstance(notes, startX, params, params.PPQ / 2);
+          createNewNoteInstance(notes, startX, channelPrograms, params, params.PPQ / 2);
         }
         //Sixteenth note:
         else if(ImGui::IsKeyReleased(ImGuiKey_S)){
-          createNewNoteInstance(notes, startX, params, params.PPQ / 4);
+          createNewNoteInstance(notes, startX, channelPrograms, params, params.PPQ / 4);
         }
         
         bool clickReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);

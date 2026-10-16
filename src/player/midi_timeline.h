@@ -113,10 +113,12 @@ struct MidiTimelineParams {
   int tabSelected = -1;
   std::map<int, std::pair<int, int>> selected;
   std::vector<std::pair<double,int>> notePlaybackQueue;
+  std::vector<std::array<int, NUM_CHANNELS>> channelPrograms;
   static constexpr const double LEFT_OFFSET = 5;
   static constexpr const double RIGHT_OFFSET = 2;
 
   MidiTimelineParams(){
+    channelPrograms.emplace_back();
   }
 
   double quarterNoteWidth(){
