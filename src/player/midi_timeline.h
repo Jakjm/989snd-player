@@ -10,14 +10,14 @@
 #include "third-party/imgui/imgui_stdlib.h"
 #include <memory>
 
-static constexpr int tickrate = 240;
-static constexpr int mics_per_tick = 1000000 / tickrate;
-static constexpr double ZOOM_MAX = 64;
-static constexpr double ZOOM_MIN = 1.0 / ZOOM_MAX;
-static constexpr int NUM_CHANNELS = 16;
-static constexpr double TIMELINE_BOX_HEIGHT = 35.0;
-static constexpr double CHANNEL_HEIGHT = 60.0;
-static constexpr double NOTE_HEIGHT = 15.0;
+static const constexpr int tickrate = 240;
+static const constexpr int mics_per_tick = 1000000 / tickrate;
+static const constexpr double ZOOM_MAX = 64;
+static const constexpr double ZOOM_MIN = 1.0 / ZOOM_MAX;
+static const constexpr int NUM_CHANNELS = 16;
+static const constexpr double TIMELINE_BOX_HEIGHT = 35.0;
+static const constexpr double CHANNEL_HEIGHT = 80.0;
+static const constexpr double NOTE_HEIGHT = 15.0;
 
 struct NoteInstance {
   int tickStart = 0;
@@ -111,17 +111,12 @@ struct MidiTimelineParams {
   NOTE_DRAG_TYPE dragType = NOT_DRAGGING;
   int timelineStartBeforeClick = -1;
   int tabSelected = -1;
-  std::vector<std::array<std::pair<unsigned char, unsigned char>, NUM_CHANNELS>> channelNoteMinMax;
   std::map<int, std::pair<int, int>> selected;
   std::vector<std::pair<double,int>> notePlaybackQueue;
   static constexpr const double LEFT_OFFSET = 5;
   static constexpr const double RIGHT_OFFSET = 2;
 
   MidiTimelineParams(){
-    auto &minMax = channelNoteMinMax.emplace_back();
-    minMax.fill({127,0});
-    minMax[0] = {0,1};
-    minMax[1] = {0,0};
   }
 
   double quarterNoteWidth(){
