@@ -5,7 +5,6 @@
 #include "sound/989snd/musicbank.h"
 #include "sound/989snd/vagvoice.h"
 #include "sound/common/voice.h"
-
 #include "third-party/imgui/imgui.h"
 #include "third-party/imgui/imgui_internal.h"
 #include "third-party/imgui/imgui_stdlib.h"
@@ -115,10 +114,14 @@ struct MidiTimelineParams {
   std::vector<std::array<std::pair<unsigned char, unsigned char>, NUM_CHANNELS>> channelNoteMinMax;
   std::map<int, std::pair<int, int>> selected;
   std::vector<std::pair<double,int>> notePlaybackQueue;
+  static constexpr const double LEFT_OFFSET = 5;
+  static constexpr const double RIGHT_OFFSET = 2;
 
   MidiTimelineParams(){
     auto &minMax = channelNoteMinMax.emplace_back();
     minMax.fill({127,0});
+    minMax[0] = {0,1};
+    minMax[1] = {0,0};
   }
 
   double quarterNoteWidth(){
@@ -130,6 +133,20 @@ struct MidiTimelineParams {
 
   void updateTime(double time){
     this->time = time;
+  }
+
+  double startX(ImVec2 windowPos){
+    double startX = windowPos.x + LEFT_OFFSET;
+    return startX;
+  }
+
+  double endX(ImVec2 windowPos, ImVec2 windowSize){
+    double endX = windowPos.x + windowSize.x - RIGHT_OFFSET;
+    return endX;
+  }
+
+  double width(ImVec2 windowSize){
+    return windowSize.x - LEFT_OFFSET - RIGHT_OFFSET;
   }
 
   void syncWithPlayerPlaybackTicks(int player_playback_ticks) {

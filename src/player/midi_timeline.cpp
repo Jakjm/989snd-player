@@ -6,14 +6,9 @@
 #include <variant>
 #include <algorithm>
 #include "tracker_style.h"
-
 #include "common/util/BinaryReader.h"
-
-#include "sound/989snd/musicbank.h"
-
 #include "fmt/format.h"
 #include "third-party/imgui/imgui.h"
-#include "third-party/imgui/imgui_internal.h"
 
 void readBank(snd::MusicBank* bank, MidiTimelineParams& params) {
   params.notes.clear();
@@ -502,12 +497,13 @@ std::pair<bool, int> drawSelectedProperties(MidiTimelineParams& params,
       }
       ImGui::EndTabBar();
     }
-
     const auto mousePos = ImGui::GetMousePos();
-    const auto windowSize = ImGui::GetContentRegionAvail();
-    if (windowPos.x <= mousePos.x && mousePos.x <= windowPos.x + windowSize.x &&
-        windowPos.y <= mousePos.y && mousePos.y <= windowPos.y + windowSize.y &&
-        ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+    const auto childWindowPos = ImGui::GetCursorScreenPos();
+    const auto childWindowSize = ImGui::GetContentRegionAvail();
+    const auto mouseReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+    if (childWindowPos.x <= mousePos.x && mousePos.x <= childWindowPos.x + childWindowSize.x &&
+        childWindowPos.y <= mousePos.y && mousePos.y <= childWindowPos.y + childWindowSize.y &&
+        mouseReleased)
         clickedProperties = true;
 
     ImGui::End();
@@ -517,7 +513,7 @@ std::pair<bool, int> drawSelectedProperties(MidiTimelineParams& params,
   return { clickedProperties, semitones };
 }
 
-void dragInstances(MidiTimelineParams& params, std::vector<NoteInstance>& notes) {
+bool dragInstances(MidiTimelineParams& params, std::vector<NoteInstance>& notes) {
   if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
     ImVec2 dragDelta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
     int sixteenthNoteDrag = (int)(params.PPQ / 4) * ceil(dragDelta.x / (params.PPQ * params.tickWidth() / 4.0));
@@ -558,7 +554,11 @@ void dragInstances(MidiTimelineParams& params, std::vector<NoteInstance>& notes)
         }
       }
     }
+    else
+      return false;
+    return sixteenthNoteDrag != 0;
   }
+  return false;
 }
 
 bool handleInstanceSelection(MidiTimelineParams& params,
@@ -615,9 +615,6 @@ bool handleInstanceSelection(MidiTimelineParams& params,
   }
 
   if(ImGui::IsMouseReleased(ImGuiMouseButton_Left) && mouseOverlapsInstance){
-    if (!ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
-      params.selected.clear();
-    params.selected.insert({index, {instance.tickStart, instance.tickEnd}});
     clickedButton = true;
   }
 
@@ -625,6 +622,7 @@ bool handleInstanceSelection(MidiTimelineParams& params,
     if (mouseOverlapsInstance && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
       params.selected.erase(iter);
     else {
+      //Draw number on selected note
       ImGui::GetWindowDrawList()->AddRect(start, end, 0xFFFF0000, 0.4, 3);
       auto index = std::distance(params.selected.begin(), iter);
       std::string selectionNumberText = "(" + std::to_string(index) + ")";
@@ -637,9 +635,9 @@ bool handleInstanceSelection(MidiTimelineParams& params,
   return clickedButton;
 }
 
-void createNewNoteInstance(std::vector<NoteInstance> &notes, double startX, MidiTimelineParams &params, std::array<std::pair<int, int>, NUM_CHANNELS> &channelMinMax, int duration)
+void createNewNoteInstance(std::vector<NoteInstance> &notes, double startX, MidiTimelineParams &params, std::array<std::pair<unsigned char, unsigned char>, NUM_CHANNELS> &channelMinMax, int duration)
 {
-  auto windowPos = ImGui::GetWindowPos();
+  auto windowPos = ImGui::GetCursorScreenPos();
   auto mousePos = ImGui::GetMousePos();
   auto firstTick = params.startTick;
   //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
@@ -655,10 +653,29 @@ void createNewNoteInstance(std::vector<NoteInstance> &notes, double startX, Midi
   }
 }
 
-void drawMidiTimeline(MidiTimelineParams& params) {
+void drawInstructions(MidiTimelineParams& params){
   const auto topline =
       fmt::format("Tempo (micros per quarter note): {} PPQ: {}", params.tempo, params.PPQ);
   ImGui::TextUnformatted(topline.c_str());
+
+  const auto noteline = "Press and release Q to generate a quarter note at the mouse position. You can also use W = whole, H = half, E = eighth and S = sixteenth.";
+  ImGui::TextUnformatted(noteline);
+  const auto select = "Click a note instance while holding CTRL to add it to your selection. Without CTRL the note will be selected exclusively.";
+
+  //const auto 
+  //const auto select = "Clicking a note while holding CTRL adds it to your selection. If not holding CTRL, the note is selected exclusively.";
+  ImGui::TextUnformatted(select);
+
+  std::string copyLine;
+  if(params.selected.size() == 0)
+    copyLine = "";
+  else
+    copyLine = fmt::format("Use CTRL-V to paste a copy of selected note{} at mouse position.", params.selected.size() > 1 ? "s" : "");
+  ImGui::TextUnformatted(copyLine.c_str());
+}
+
+void drawMidiTimeline(MidiTimelineParams& params) {
+  drawInstructions(params);
 
   const auto drawlist = ImGui::GetWindowDrawList();
   const auto& io = ImGui::GetIO();
@@ -691,18 +708,9 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         const auto mousePos = io.MousePos;
         auto &channelMinMax = params.channelNoteMinMax[midi_index];
 
-        dragInstances(params, notes);
+        bool dragged = dragInstances(params, notes);
 
-        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-          params.beganClickingTimeline = false;
-          params.dragType = NOT_DRAGGING;
-          // Update initial start/end of selected nodes
-          for (auto& iter : params.selected) {
-            auto note = notes[iter.first];
-            iter.second.first = note.tickStart;
-            iter.second.second = note.tickEnd;
-          }
-        } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
           if (windowPos.x <= mousePos.x && mousePos.x <= windowPos.x + windowSize.x &&
               windowPos.y <= mousePos.y && mousePos.y <= windowPos.y + TIMELINE_BOX_HEIGHT) {
             params.beganClickingTimeline = true;
@@ -715,7 +723,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         int firstTick = params.startTick;
         int curTick = params.startTick;
 
-        double spaceRemaining = windowSize.x - 7.0;
+        double spaceRemaining = params.width(windowSize);
         int lastTick = firstTick + (int)ceil(spaceRemaining / params.tickWidth());
         int lastMeasure = lastTick / ticksPerMeasure;
 
@@ -726,13 +734,13 @@ void drawMidiTimeline(MidiTimelineParams& params) {
           auto& instance = *iter;
 
           if (params.startTick <= instance.tickEnd && instance.tickStart <= lastTick) {
-            double startX = windowPos.x + 5;
+            double startX = params.startX(windowPos);
             if (instance.tickStart >= params.startTick)
               startX += (double)(params.tickWidth() * (instance.tickStart - firstTick));
 
-            double endX = windowPos.x + windowSize.x - 2;
+            double endX = params.endX(windowPos, windowSize);
             if (instance.tickEnd <= lastTick)
-              endX = windowPos.x + 5 + params.tickWidth() * (double)(instance.tickEnd - firstTick);
+              endX = params.startX(windowPos) + params.tickWidth() * (double)(instance.tickEnd - firstTick);
 
 
             auto minMax = channelMinMax[instance.channel];
@@ -747,7 +755,12 @@ void drawMidiTimeline(MidiTimelineParams& params) {
 
             if (handleInstanceSelection(params, index, start, end, mousePos, instance))
             {
-              params.selected.insert({index, {instance.tickStart, instance.tickEnd}});
+              if(!params.selected.contains(index)){
+                if((!ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && !ImGui::IsKeyDown(ImGuiKey_RightCtrl))){
+                  params.selected.clear();
+                }
+                params.selected.insert({index, {instance.tickStart, instance.tickEnd}});
+              }
               clickedButton = true;
             }
 
@@ -768,16 +781,16 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         }
 
         // Draw rectangles around each channel row
-        auto currentPos = ImVec2(windowPos.x + 5, windowPos.y + TIMELINE_BOX_HEIGHT);
+        auto currentPos = ImVec2(params.startX(windowPos), windowPos.y + TIMELINE_BOX_HEIGHT);
 
         for (int channel = 0; channel < NUM_CHANNELS; ++channel) {
-          drawlist->AddRect(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y + (CHANNEL_HEIGHT + 1.0)),
+          drawlist->AddRect(currentPos, ImVec2(params.endX(windowPos, windowSize), currentPos.y + (CHANNEL_HEIGHT + 1.0)),
                             0xFF000000, 0.2);
 
           const auto channelText = std::string("Channel ") + std::to_string(channel);
           const auto textSize = ImGui::CalcTextSize(channelText.c_str());
 
-          drawlist->AddText(ImVec2(windowPos.x + 5 + (windowSize.x - textSize.x) / 2.0,
+          drawlist->AddText(ImVec2(params.startX(windowPos) + (windowSize.x - textSize.x) / 2.0,
                                    currentPos.y + (CHANNEL_HEIGHT - textSize.y) / 2.0),
                             0x77000000, channelText.c_str());
 
@@ -785,12 +798,12 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         }
 
         // Timeline drawing code:
-        currentPos = ImVec2(windowPos.x + 5, windowPos.y + 16);
+        currentPos = ImVec2(params.startX(windowPos), windowPos.y + 16);
         drawlist->AddRectFilled(
-            windowPos, ImVec2(windowPos.x + windowSize.x, windowPos.y + TIMELINE_BOX_HEIGHT),
+            windowPos, ImVec2(params.endX(windowPos, windowSize), windowPos.y + TIMELINE_BOX_HEIGHT),
             0xFFA0A0A0);
         // Draw horizontal line to right side
-        drawlist->AddLine(currentPos, ImVec2(windowPos.x + windowSize.x - 2, currentPos.y),
+        drawlist->AddLine(currentPos, ImVec2(params.endX(windowPos, windowSize), currentPos.y),
                           0xFF000000);
         // Account for being between quarter notes:
         double distanceToFirstQuarter = 0.0;
@@ -806,7 +819,7 @@ void drawMidiTimeline(MidiTimelineParams& params) {
         int measureNumberVisibleMultiple =
             ticksPerMeasure * (int)ceil(2 * numberSize.x / (4 * params.quarterNoteWidth()));
         // printf("%d\n", measureNumberVisibleMultiple);
-        while (currentPos.x < windowPos.x + windowSize.x - 2) {
+        while (currentPos.x < params.endX(windowPos, windowSize)) {
           double lineHeight;
           if (curTick % measureNumberVisibleMultiple == 0) {
             lineHeight = 15;
@@ -847,11 +860,38 @@ void drawMidiTimeline(MidiTimelineParams& params) {
           noteInstance.note = afterOffset;
         }
 
-        double startX = windowPos.x + 5;
-        //Pasting selection to mouse cursor position
-        if(!params.selected.empty() && ImGui::IsKeyReleased(ImGuiKey_V) && (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl))){
+        double startX = params.startX(windowPos);
+        //Note creation at mouse position:
+        //Whole note
+        if(ImGui::IsKeyReleased(ImGuiKey_W)){
+          //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
+          createNewNoteInstance(notes, startX, params, channelMinMax, params.PPQ * 4);
+        }
+        //Half note
+        if(ImGui::IsKeyReleased(ImGuiKey_H)){
+          //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
+          createNewNoteInstance(notes, startX, params, channelMinMax, params.PPQ * 2);
+        }
+        //Quarter note
+        if(ImGui::IsKeyReleased(ImGuiKey_Q)){
+          //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
+          createNewNoteInstance(notes, startX, params, channelMinMax, params.PPQ);
+        }
+        //Eighth note:
+        else if(ImGui::IsKeyReleased(ImGuiKey_E)){
+          //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
+          createNewNoteInstance(notes, startX, params, channelMinMax, params.PPQ / 2);
+        }
+        //Sixteenth note:
+        else if(ImGui::IsKeyReleased(ImGuiKey_S)){
+          createNewNoteInstance(notes, startX, params, channelMinMax, params.PPQ / 4);
+        }
+        
+        bool clickReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+        //Pasting selection to mouse position
+        if(!params.selected.empty() && ((ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl)) && ImGui::IsKeyReleased(ImGuiKey_V))){
           int pasteTickStart = (int)ceil((mousePos.x - startX) / params.tickWidth()) + firstTick;
-
+          
           int firstNoteTickStart = notes[params.selected.begin()->first].tickStart;
           for(auto& selection: params.selected){
             auto& selectedNote = notes[selection.first];
@@ -860,26 +900,21 @@ void drawMidiTimeline(MidiTimelineParams& params) {
             notes.emplace_back(newStart, newEnd, selectedNote.velocity, selectedNote.program, selectedNote.note, selectedNote.channel);
           }
         }
-
-        bool clickReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
-        if (ImGui::IsKeyReleased(ImGuiKey_N)) {
-          //Create a new note instance lasting a quarter note at the current mouse position within the valid channel range
-          double channelPos = (mousePos.y - (windowPos.y + TIMELINE_BOX_HEIGHT)) / CHANNEL_HEIGHT;
-          if(channelPos >= 0 && channelPos < NUM_CHANNELS)
-          {
-            int newStart = firstTick + (int)ceil((mousePos.x - startX) / params.tickWidth());
-            int newEnd = newStart + params.PPQ;
-            int newChannel = (int)channelPos;
-            int note = channelMinMax[newChannel].second;
-            notes.emplace_back(newStart, newEnd, 0, 0, note, newChannel); // Default velocity, program, note, channel
-            params.selected.insert({static_cast<int>(notes.size()) - 1, {newStart, newEnd}});
-          }
-        }
-        else if (ImGui::IsKeyReleased(ImGuiKey_Escape) || clickReleased && params.dragType == NOT_DRAGGING &&
-            !params.beganClickingTimeline && !clickedButton && !clickedProperties) {
+        else if (ImGui::IsKeyReleased(ImGuiKey_Escape) || clickReleased && !dragged && params.dragType == NOT_DRAGGING &&
+        !params.beganClickingTimeline && !clickedButton && !clickedProperties) {
           params.selected.clear();
         }
-
+        
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+          params.beganClickingTimeline = false;
+          params.dragType = NOT_DRAGGING;
+          // Update initial start/end of selected nodes
+          for (auto& iter : params.selected) {
+            auto note = notes[iter.first];
+            iter.second.first = note.tickStart;
+            iter.second.second = note.tickEnd;
+          }
+        }
         if(ImGui::IsMouseClicked(ImGuiMouseButton_Left) && params.dragType == NOT_DRAGGING && !params.beganClickingTimeline){
           params.beganSelecting = true;
         }
@@ -891,14 +926,14 @@ void drawMidiTimeline(MidiTimelineParams& params) {
           drawlist->AddRect(mousePos, mouseDragOrigin, 0xFFDD0000, 0.5, 1.5);
 
           //Add all notes within the rectangle to the selection
-          if(ImGui::IsMouseReleased(ImGuiMouseButton_Left)){
+          if(clickReleased){
             params.beganSelecting = false;
           }
         }
 
         // Draw a vertical line indicating current tick.
         if (firstTick <= params.playback_tick && params.playback_tick <= lastTick) {
-          currentPos = ImVec2(windowPos.x + 5.0 + (params.playback_tick - firstTick) * params.tickWidth(),
+          currentPos = ImVec2(params.startX(windowPos) + (params.playback_tick - firstTick) * params.tickWidth(),
                               windowPos.y + 16.0);
           drawlist->AddLine(
               currentPos,
